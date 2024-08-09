@@ -2,12 +2,12 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import accountRoutes from "./routes/accountRoutes.js";
-import categorieRouter from "./routes/categorieRoutes.js"
-import transaccionRouter from "./routes/transaccionRoutes.js"
-import transferRouter from "./routes/transfersRoutes.js"
+import categorieRouter from "./routes/categorieRoutes.js";
+import transaccionRouter from "./routes/transaccionRoutes.js";
+import transferRouter from "./routes/transfersRoutes.js";
 
 const app = express();
-const PORT = 7000;
+import dotenv from "dotenv";
 
 // Incluye los módulos necesarios para la autenticación
 
@@ -26,6 +26,8 @@ app.use((err, req, res, next) => {
   // Puedes enviar una respuesta de error al cliente o realizar otras acciones aquí
   res.status(500).send("Error interno del servidor");
 });
+
+const PORT = process.env.PORT || 3005;
 
 // Rutas protegidas (requieren autenticación)
 app.use("/api", accountRoutes);
