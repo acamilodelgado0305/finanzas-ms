@@ -15,7 +15,7 @@ app.use(cookieParser());
 app.use(
   cors({
     credentials: true,
-    origin: ["https://lanet.app.la-net.co", "http://localhost:5173"],
+    origin: ["http://lanet.app.la-net.co", "http://localhost:5173"],
   })
 );
 app.use(express.json());
