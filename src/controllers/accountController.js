@@ -3,7 +3,8 @@ import {
     getAccounts,
     getAccountById,
     updateAccount,
-    deleteAccount
+    deleteAccount,
+    getTotalBalance
   } from '../models/accountModel.js';
   
   const createAccountController = async (req, res) => {
@@ -69,12 +70,23 @@ import {
       res.status(500).json({ error: 'Error eliminando cuenta' });
     }
   };
+
+  const getTotalBalanceController = async (req, res) => {
+    try {
+      const totalBalance = await getTotalBalance();
+      res.status(200).json({ totalBalance });
+    } catch (err) {
+      console.error('Error obteniendo el total de balances', err);
+      res.status(500).json({ error: 'Error obteniendo el total de balances' });
+    }
+  };
   
   export {
     createAccountController,
     getAccountsController,
     getAccountByIdController,
     updateAccountController,
-    deleteAccountController
+    deleteAccountController,
+    getTotalBalanceController
   };
   

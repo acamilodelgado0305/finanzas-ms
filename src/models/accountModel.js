@@ -31,4 +31,9 @@ const deleteAccount = async (id) => {
   return result.rows[0];
 };
 
-export { createAccount, getAccounts, getAccountById, updateAccount, deleteAccount };
+const getTotalBalance = async () => {
+  const result = await pool.query('SELECT SUM(balance) AS total_balance FROM accounts');
+  return result.rows[0].total_balance;
+};
+
+export { createAccount, getAccounts, getAccountById, updateAccount, deleteAccount,getTotalBalance };

@@ -4,6 +4,9 @@ import {
   getTransactionById,
   updateTransaction,
   deleteTransaction,
+  getTotalExpensesByDate,
+  getTotalIncomeByDate,
+  getDailyBalanceByDate,
 } from "../models/transaccionModel.js";
 
 const createTransactionController = async (req, res) => {
@@ -138,10 +141,61 @@ const deleteTransactionController = async (req, res) => {
   }
 };
 
+const getTotalExpensesByDateController = async (req, res) => {
+  const { date } = req.params;
+
+  if (!date) {
+    return res.status(400).json({ error: "La fecha es obligatoria" });
+  }
+
+  try {
+    const totalExpenses = await getTotalExpensesByDate(date);
+    res.status(200).json({ totalExpenses });
+  } catch (err) {
+    console.error("Error obteniendo total de gastos", err);
+    res.status(500).json({ error: "Error obteniendo total de gastos" });
+  }
+};
+
+const getTotalIncomeByDateController = async (req, res) => {
+  const { date } = req.params;
+
+  if (!date) {
+    return res.status(400).json({ error: "La fecha es obligatoria" });
+  }
+
+  try {
+    const totalIncome = await getTotalIncomeByDate(date);
+    res.status(200).json({ totalIncome });
+  } catch (err) {
+    console.error("Error obteniendo total de ingresos", err);
+    res.status(500).json({ error: "Error obteniendo total de ingresos" });
+  }
+};
+
+const getDailyBalanceByDateController = async (req, res) => {
+  const { date } = req.params;
+
+  if (!date) {
+    return res.status(400).json({ error: "La fecha es obligatoria" });
+  }
+
+  try {
+    const balance = await getDailyBalanceByDate(date);
+    res.status(200).json({ balance });
+  } catch (err) {
+    console.error("Error obteniendo balance diario", err);
+    res.status(500).json({ error: "Error obteniendo balance diario" });
+  }
+};
+
 export {
   createTransactionController,
   getTransactionsController,
   getTransactionByIdController,
   updateTransactionController,
   deleteTransactionController,
+  getTotalExpensesByDateController,
+  getTotalIncomeByDateController,
+  getDailyBalanceByDateController,
 };

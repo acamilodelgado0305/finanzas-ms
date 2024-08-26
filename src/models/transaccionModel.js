@@ -118,11 +118,41 @@ const deleteTransaction = async (id) => {
   );
   return result.rows[0];
 };
+const getTotalExpensesByDate = async (date) => {
+  const result = await pool.query(
+    `SELECT SUM(amount) AS total_expenses 
+     FROM transactions 
+     WHERE type = 'expense' AND date::date = $1::date`,
+    [date]
+  );
+  return result.rows[0].total_expenses || 0; // Devolver 0 si no hay gastos
+};
+
+const getTotalIncomeByDate = async (date) => {
+  const result = await pool.query(
+    `SELECT SUM(amount) AS total_income 
+     FROM transactions 
+     WHERE type = 'income' AND date::date = $1::date`,
+    [date]
+  );
+  return result.rows[0].total_income || 0; // Devolver 0 si no hay ingresos
+};
+const getDailyBalanceByDate = async (date) => {
+  const totalIncome = await getTotalIncomeByDate(date);
+  const totalExpenses = await getTotalExpensesByDate(date);
+  
+  return totalIncome - totalExpenses;
+};
+
+
 
 export {
   createTransaction,
   getTransactions,
   getTransactionById,
   updateTransaction,
-  deleteTransaction
+  deleteTransaction,
+  getTotalExpensesByDate,
+  getTotalIncomeByDate,
+  getDailyBalanceByDate
 }
