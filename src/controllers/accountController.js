@@ -8,9 +8,9 @@ import {
   } from '../models/accountModel.js';
   
   const createAccountController = async (req, res) => {
-    const { userId, name, balance } = req.body;
+    const { name, balance, type } = req.body;
     try {
-      const account = await createAccount(userId, name, balance);
+      const account = await createAccount(name, balance, type);
       res.status(201).json(account);
     } catch (err) {
       console.error('Error creando cuenta', err);

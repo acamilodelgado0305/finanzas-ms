@@ -1,9 +1,9 @@
 import pool from '../database.js';
 
-const createAccount = async (userId, name, balance) => {
+const createAccount = async (name, balance, type) => {
   const result = await pool.query(
-    'INSERT INTO accounts (user_id, name, balance) VALUES ($1, $2, $3) RETURNING *',
-    [userId, name, balance]
+    'INSERT INTO accounts (name, balance, "type") VALUES ($1, $2, $3) RETURNING *',
+    [name, balance, type]
   );
   return result.rows[0];
 };
