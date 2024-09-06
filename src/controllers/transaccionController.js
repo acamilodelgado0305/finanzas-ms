@@ -7,6 +7,9 @@ import {
   getTotalExpensesByDate,
   getTotalIncomeByDate,
   getDailyBalanceByDate,
+  getTotalExpensesByMonth,
+  getTotalIncomeByMonth,
+  getMonthlyBalanceByMonth
 } from "../models/transaccionModel.js";
 
 const createTransactionController = async (req, res) => {
@@ -189,6 +192,54 @@ const getDailyBalanceByDateController = async (req, res) => {
   }
 };
 
+const getTotalExpensesByMonthController = async (req, res) => {
+  const { month } = req.params;
+
+  if (!month) {
+    return res.status(400).json({ error: "El mes es obligatorio" });
+  }
+
+  try {
+    const totalExpenses = await getTotalExpensesByMonth(month);
+    res.status(200).json({ totalExpenses });
+  } catch (err) {
+    console.error("Error obteniendo total de gastos del mes", err);
+    res.status(500).json({ error: "Error obteniendo total de gastos del mes" });
+  }
+};
+
+const getTotalIncomeByMonthController = async (req, res) => {
+  const { month } = req.params;
+
+  if (!month) {
+    return res.status(400).json({ error: "El mes es obligatorio" });
+  }
+
+  try {
+    const totalIncome = await getTotalIncomeByMonth(month);
+    res.status(200).json({ totalIncome });
+  } catch (err) {
+    console.error("Error obteniendo total de ingresos del mes", err);
+    res.status(500).json({ error: "Error obteniendo total de ingresos del mes" });
+  }
+};
+
+const getMonthlyBalanceByMonthController = async (req, res) => {
+  const { month } = req.params;
+
+  if (!month) {
+    return res.status(400).json({ error: "El mes es obligatorio" });
+  }
+
+  try {
+    const balance = await getMonthlyBalanceByMonth(month);
+    res.status(200).json({ balance });
+  } catch (err) {
+    console.error("Error obteniendo balance mensual", err);
+    res.status(500).json({ error: "Error obteniendo balance mensual" });
+  }
+};
+
 export {
   createTransactionController,
   getTransactionsController,
@@ -198,4 +249,8 @@ export {
   getTotalExpensesByDateController,
   getTotalIncomeByDateController,
   getDailyBalanceByDateController,
+  getTotalExpensesByMonthController,
+  getTotalIncomeByMonthController,
+  getMonthlyBalanceByMonthController,
 };
+

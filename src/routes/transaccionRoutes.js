@@ -8,24 +8,32 @@ import {
   getTotalExpensesByDateController,
   getTotalIncomeByDateController,
   getDailyBalanceByDateController,
+  getTotalExpensesByMonthController,
+  getTotalIncomeByMonthController,
+  getMonthlyBalanceByMonthController,
 } from "../controllers/transaccionController.js";
 
 const router = express.Router();
 
-//POST
+// POST
 router.post("/transactions", createTransactionController);
 
-//GET
+// GET
 router.get("/transactions", getTransactionsController);
 router.get("/transactions/:id", getTransactionByIdController);
 router.get("/transactions/expenses/:date", getTotalExpensesByDateController);
 router.get("/transactions/income/:date", getTotalIncomeByDateController);
 router.get("/transactions/balance/:date", getDailyBalanceByDateController);
 
-//PUT
+// Rutas para cálculos mensuales
+router.get("/transactions/expenses/month/:month", getTotalExpensesByMonthController);
+router.get("/transactions/income/month/:month", getTotalIncomeByMonthController);
+router.get("/transactions/balance/month/:month", getMonthlyBalanceByMonthController);
+
+// PUT
 router.put("/transactions/:id", updateTransactionController);
 
-//DELETE
+// DELETE
 router.delete("/transactions/:id", deleteTransactionController);
 
 export default router;
