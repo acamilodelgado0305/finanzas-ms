@@ -22,6 +22,7 @@ const createTransactionController = async (req, res) => {
     date,
     note,
     description,
+    recurrent,
   } = req.body;
 
   // Validación de entrada
@@ -50,7 +51,8 @@ const createTransactionController = async (req, res) => {
       type,
       date,
       note,
-      description
+      description,
+      recurrent,
     );
     res.status(201).json(transaction);
   } catch (err) {
@@ -107,6 +109,7 @@ const updateTransactionController = async (req, res) => {
     date,
     note,
     description,
+    recurrent,
   } = req.body;
   try {
     const transaction = await updateTransaction(
@@ -118,7 +121,8 @@ const updateTransactionController = async (req, res) => {
       type,
       date,
       note,
-      description
+      description,
+      recurrent,
     );
     if (!transaction) {
       return res.status(404).json({ error: "Transacción no encontrada" });

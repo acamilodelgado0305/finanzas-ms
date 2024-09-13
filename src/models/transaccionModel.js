@@ -9,7 +9,8 @@ const createTransaction = async (
   type,
   date,
   note,
-  description
+  description,
+  recurrent
 ) => {
   // Iniciar una transacción
   const client = await pool.connect();
@@ -19,9 +20,19 @@ const createTransaction = async (
 
     // Crear la transacción en la base de datos
     const transactionResult = await client.query(
-      `INSERT INTO transactions (user_id, account_id, category_id, amount, type, date, note, description)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [userId, accountId, categoryId, amount, type, date, note, description]
+      `INSERT INTO transactions (user_id, account_id, category_id, amount, type, date, note, description, recurrent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [
+        userId,
+        accountId,
+        categoryId,
+        amount,
+        type,
+        date,
+        note,
+        description,
+        recurrent,
+      ]
     );
 
     const transaction = transactionResult.rows[0];
@@ -49,7 +60,9 @@ const createTransaction = async (
       currentBalance += amount;
     } else if (type === "expense") {
       if (currentBalance < amount) {
-        throw new Error("Fondos insuficientes para realizar la transacción de gasto");
+        throw new Error(
+          "Fondos insuficientes para realizar la transacción de gasto"
+        );
       }
       currentBalance -= amount;
     } else {
@@ -72,8 +85,6 @@ const createTransaction = async (
     client.release();
   }
 };
-
-
 
 // Obtener todas las transacciones
 const getTransactions = async () => {
@@ -99,13 +110,26 @@ const updateTransaction = async (
   type,
   date,
   note,
-  description
+  description,
+  recurrent
 ) => {
   const result = await pool.query(
     `UPDATE transactions
-     SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, note = $7, description = $8
-     WHERE id = $9 RETURNING *`,
-    [userId, accountId, categoryId, amount, type, date, note, description, id]
+     SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, note = $7, description = $8, recurrent = $9
+     WHERE id = $10 RETURNING *`,
+    [
+      userId,
+      accountId,
+      categoryId,
+      amount,
+      type,
+      date,
+      note,
+      description,
+      recurrent,
+      id,
+     
+    ]
   );
   return result.rows[0];
 };
@@ -140,11 +164,9 @@ const getTotalIncomeByDate = async (date) => {
 const getDailyBalanceByDate = async (date) => {
   const totalIncome = await getTotalIncomeByDate(date);
   const totalExpenses = await getTotalExpensesByDate(date);
-  
+
   return totalIncome - totalExpenses;
 };
-
-
 
 const getTotalExpensesByMonth = async (month) => {
   const result = await pool.query(
@@ -156,7 +178,6 @@ const getTotalExpensesByMonth = async (month) => {
   return result.rows[0].total_expenses || 0; // Devolver 0 si no hay gastos
 };
 
-
 const getTotalIncomeByMonth = async (month) => {
   const result = await pool.query(
     `SELECT SUM(amount) AS total_income 
@@ -167,14 +188,12 @@ const getTotalIncomeByMonth = async (month) => {
   return result.rows[0].total_income || 0; // Devolver 0 si no hay ingresos
 };
 
-
 const getMonthlyBalanceByMonth = async (month) => {
   const totalIncome = await getTotalIncomeByMonth(month);
   const totalExpenses = await getTotalExpensesByMonth(month);
-  
+
   return totalIncome - totalExpenses;
 };
-
 
 export {
   createTransaction,
@@ -187,6 +206,5 @@ export {
   getDailyBalanceByDate,
   getTotalExpensesByMonth,
   getTotalIncomeByMonth,
-  getMonthlyBalanceByMonth
+  getMonthlyBalanceByMonth,
 };
-
