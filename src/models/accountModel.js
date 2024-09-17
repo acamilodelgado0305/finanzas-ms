@@ -37,7 +37,7 @@ const deleteAccount = async (id) => {
 
 const getTotalBalance = async () => {
   const result = await pool.query(
-    "SELECT SUM(balance) AS total_balance FROM accounts WHERE plus = true"
+    "SELECT SUM(balance) AS total_balance FROM accounts WHERE plus = TRUE"
   );
   return result.rows[0].total_balance;
 };
