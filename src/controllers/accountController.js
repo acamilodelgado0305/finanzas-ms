@@ -8,9 +8,9 @@ import {
   } from '../models/accountModel.js';
   
   const createAccountController = async (req, res) => {
-    const { name, balance, type } = req.body;
+    const { name, balance, type,plus } = req.body;
     try {
-      const account = await createAccount(name, balance, type);
+      const account = await createAccount(name, balance, type,plus);
       res.status(201).json(account);
     } catch (err) {
       console.error('Error creando cuenta', err);
@@ -44,9 +44,9 @@ import {
   
   const updateAccountController = async (req, res) => {
     const { id } = req.params;
-    const { name, balance } = req.body;
+    const { name, balance,type,plus } = req.body;
     try {
-      const account = await updateAccount(id, name, balance);
+      const account = await updateAccount(id, name, balance,type, plus);
       if (!account) {
         return res.status(404).json({ error: 'Cuenta no encontrada' });
       }
