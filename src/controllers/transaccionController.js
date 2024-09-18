@@ -12,6 +12,9 @@ import {
   getMonthlyBalanceByMonth
 } from "../models/transaccionModel.js";
 
+
+//-----------------------------------CREATE TRANSACCION CONTROLLER---------------------------------------
+
 const createTransactionController = async (req, res) => {
   const {
     userId,
@@ -23,6 +26,7 @@ const createTransactionController = async (req, res) => {
     note,
     description,
     recurrent,
+    tax_type
   } = req.body;
 
   // Validación de entrada
@@ -53,6 +57,7 @@ const createTransactionController = async (req, res) => {
       note,
       description,
       recurrent,
+      tax_type
     );
     res.status(201).json(transaction);
   } catch (err) {
@@ -98,6 +103,8 @@ const getTransactionByIdController = async (req, res) => {
   }
 };
 
+//-------------------------------------UPDATE TRANSACCION CONTROLLER-------------------------------------
+
 const updateTransactionController = async (req, res) => {
   const { id } = req.params;
   const {
@@ -110,6 +117,7 @@ const updateTransactionController = async (req, res) => {
     note,
     description,
     recurrent,
+    tax_type
   } = req.body;
   try {
     const transaction = await updateTransaction(
@@ -123,6 +131,7 @@ const updateTransactionController = async (req, res) => {
       note,
       description,
       recurrent,
+      tax_type
     );
     if (!transaction) {
       return res.status(404).json({ error: "Transacción no encontrada" });

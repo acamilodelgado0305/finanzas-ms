@@ -10,7 +10,8 @@ const createTransaction = async (
   date,
   note,
   description,
-  recurrent
+  recurrent,
+  tax_type
 ) => {
   // Iniciar una transacción
   const client = await pool.connect();
@@ -18,10 +19,11 @@ const createTransaction = async (
   try {
     await client.query("BEGIN");
 
-    // Crear la transacción en la base de datos
+ //-----------------------------------------------------------CREAR TRANSACCION-----------------------------------------------//
+ 
     const transactionResult = await client.query(
-      `INSERT INTO transactions (user_id, account_id, category_id, amount, type, date, note, description, recurrent)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      `INSERT INTO transactions (user_id, account_id, category_id, amount, type, date, note, description, recurrent, tax_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
       [
         userId,
         accountId,
@@ -32,6 +34,7 @@ const createTransaction = async (
         note,
         description,
         recurrent,
+        tax_type
       ]
     );
 
@@ -100,7 +103,7 @@ const getTransactionById = async (id) => {
   return result.rows[0];
 };
 
-// Actualizar una transacción
+//----------------------------------------- ACTUALIZAR TRANSACCION--------------------------------------------------------------//
 const updateTransaction = async (
   id,
   userId,
@@ -111,12 +114,13 @@ const updateTransaction = async (
   date,
   note,
   description,
-  recurrent
+  recurrent,
+  tax_type
 ) => {
   const result = await pool.query(
     `UPDATE transactions
-     SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, note = $7, description = $8, recurrent = $9
-     WHERE id = $10 RETURNING *`,
+     SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, note = $7, description = $8, recurrent = $9, tax_type = $10
+     WHERE id = $11 RETURNING *`,
     [
       userId,
       accountId,
@@ -128,6 +132,7 @@ const updateTransaction = async (
       description,
       recurrent,
       id,
+      tax_type
      
     ]
   );
