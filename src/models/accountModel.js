@@ -26,7 +26,6 @@ const updateAccount = async (id, name, balance, type, plus) => {
   return result.rows[0];
 };
 
-
 const deleteAccount = async (id) => {
   const result = await pool.query(
     "DELETE FROM accounts WHERE id = $1 RETURNING *",
@@ -41,7 +40,6 @@ const getTotalBalance = async () => {
   );
   return result.rows[0].total_balance;
 };
-
 
 export {
   createAccount,
