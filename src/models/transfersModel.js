@@ -80,11 +80,59 @@ const updateTransfer = async (
 };
 
 const deleteTransfer = async (id) => {
-  const result = await pool.query(
-    "DELETE FROM transfers WHERE id = $1 RETURNING *",
-    [id]
-  );
-  return result.rows[0];
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // Obtener la transferencia a eliminar
+    const transferResult = await client.query(
+      "SELECT * FROM transfers WHERE id = $1",
+      [id]
+    );
+
+    const transfer = transferResult.rows[0];
+
+    if (!transfer) {
+      throw new Error("Transferencia no encontrada");
+    }
+
+    const { from_account_id, to_account_id, amount } = transfer;
+
+    // Revertir el débito en la cuenta de origen (devolver el dinero)
+    const revertDebit = await client.query(
+      "UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING *",
+      [amount, from_account_id]
+    );
+
+    if (revertDebit.rowCount === 0) {
+      throw new Error("Cuenta de origen no encontrada");
+    }
+
+    // Revertir el crédito en la cuenta de destino (retirar el dinero)
+    const revertCredit = await client.query(
+      "UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING *",
+      [amount, to_account_id]
+    );
+
+    if (revertCredit.rowCount === 0) {
+      throw new Error("Cuenta de destino no encontrada");
+    }
+
+    // Eliminar la transferencia
+    const deleteResult = await client.query(
+      "DELETE FROM transfers WHERE id = $1 RETURNING *",
+      [id]
+    );
+
+    await client.query("COMMIT");
+    return deleteResult.rows[0];
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 export {

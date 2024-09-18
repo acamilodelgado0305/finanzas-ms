@@ -139,14 +139,68 @@ const updateTransaction = async (
   return result.rows[0];
 };
 
-// Eliminar una transacción
+
+
+//--------------------------------ELIMINAR TRANSACCION--------------------------------------------//
+
 const deleteTransaction = async (id) => {
-  const result = await pool.query(
-    "DELETE FROM transactions WHERE id = $1 RETURNING *",
-    [id]
-  );
-  return result.rows[0];
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Obtener la información de la transacción
+    const transactionResult = await client.query(
+      'SELECT * FROM transactions WHERE id = $1',
+      [id]
+    );
+
+    if (transactionResult.rows.length === 0) {
+      throw new Error('Transacción no encontrada');
+    }
+
+    const transaction = transactionResult.rows[0];
+
+    // Si la transacción es un gasto, devolver el dinero a la cuenta
+    if (transaction.type === 'expense') {
+      // Obtener el saldo actual de la cuenta
+      const accountResult = await client.query(
+        'SELECT balance FROM accounts WHERE id = $1 FOR UPDATE',
+        [transaction.account_id]
+      );
+
+      if (accountResult.rows.length === 0) {
+        throw new Error('Cuenta no encontrada');
+      }
+
+      const currentBalance = parseFloat(accountResult.rows[0].balance);
+      const newBalance = currentBalance + transaction.amount;
+
+      // Actualizar el saldo de la cuenta
+      await client.query(
+        'UPDATE accounts SET balance = $1 WHERE id = $2',
+        [newBalance, transaction.account_id]
+      );
+    }
+
+    // Eliminar la transacción
+    const deleteResult = await client.query(
+      'DELETE FROM transactions WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    await client.query('COMMIT');
+    return deleteResult.rows[0];
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 };
+
+
 const getTotalExpensesByDate = async (date) => {
   const result = await pool.query(
     `SELECT SUM(amount) AS total_expenses 
