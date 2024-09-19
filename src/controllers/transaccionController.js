@@ -147,15 +147,19 @@ const deleteTransactionController = async (req, res) => {
   const { id } = req.params;
   try {
     const transaction = await deleteTransaction(id);
-    if (!transaction) {
+    res.status(200).json(transaction); // Si todo está bien, devuelves la transacción eliminada
+  } catch (err) {
+    if (err.message === 'Transacción no encontrada') {
       return res.status(404).json({ error: "Transacción no encontrada" });
     }
-    res.status(200).json(transaction);
-  } catch (err) {
+    if (err.message === 'Cuenta no encontrada') {
+      return res.status(404).json({ error: "Cuenta no encontrada" });
+    }
     console.error("Error eliminando transacción", err);
     res.status(500).json({ error: "Error eliminando transacción" });
   }
 };
+
 
 const getTotalExpensesByDateController = async (req, res) => {
   const { date } = req.params;

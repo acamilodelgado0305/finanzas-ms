@@ -19,8 +19,8 @@ const createTransaction = async (
   try {
     await client.query("BEGIN");
 
- //-----------------------------------------------------------CREAR TRANSACCION-----------------------------------------------//
- 
+    //-----------------------------------------------------------CREAR TRANSACCION-----------------------------------------------//
+
     const transactionResult = await client.query(
       `INSERT INTO transactions (user_id, account_id, category_id, amount, type, date, note, description, recurrent, tax_type)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
@@ -34,7 +34,7 @@ const createTransaction = async (
         note,
         description,
         recurrent,
-        tax_type
+        tax_type,
       ]
     );
 
@@ -132,14 +132,11 @@ const updateTransaction = async (
       description,
       recurrent,
       id,
-      tax_type
-     
+      tax_type,
     ]
   );
   return result.rows[0];
 };
-
-
 
 //--------------------------------ELIMINAR TRANSACCION--------------------------------------------//
 
@@ -147,59 +144,55 @@ const deleteTransaction = async (id) => {
   const client = await pool.connect();
 
   try {
-    await client.query('BEGIN');
+    await client.query("BEGIN");
 
     // Obtener la información de la transacción
     const transactionResult = await client.query(
-      'SELECT * FROM transactions WHERE id = $1',
+      "SELECT * FROM transactions WHERE id = $1",
       [id]
     );
 
     if (transactionResult.rows.length === 0) {
-      throw new Error('Transacción no encontrada');
+      throw new Error("Transacción no encontrada");
     }
 
     const transaction = transactionResult.rows[0];
 
     // Si la transacción es un gasto, devolver el dinero a la cuenta
-    if (transaction.type === 'expense') {
-      // Obtener el saldo actual de la cuenta
+    if (transaction.type === "expense") {
       const accountResult = await client.query(
-        'SELECT balance FROM accounts WHERE id = $1 FOR UPDATE',
+        "SELECT balance FROM accounts WHERE id = $1 FOR UPDATE",
         [transaction.account_id]
       );
 
       if (accountResult.rows.length === 0) {
-        throw new Error('Cuenta no encontrada');
+        throw new Error("Cuenta no encontrada");
       }
 
       const currentBalance = parseFloat(accountResult.rows[0].balance);
-      const newBalance = currentBalance + transaction.amount;
+      const newBalance = currentBalance + parseFloat(transaction.amount); // Asegurar que `transaction.amount` sea un número
 
-      // Actualizar el saldo de la cuenta
-      await client.query(
-        'UPDATE accounts SET balance = $1 WHERE id = $2',
-        [newBalance, transaction.account_id]
-      );
+      await client.query("UPDATE accounts SET balance = $1 WHERE id = $2", [
+        newBalance,
+        transaction.account_id,
+      ]);
     }
 
     // Eliminar la transacción
     const deleteResult = await client.query(
-      'DELETE FROM transactions WHERE id = $1 RETURNING *',
+      "DELETE FROM transactions WHERE id = $1 RETURNING *",
       [id]
     );
 
-    await client.query('COMMIT');
+    await client.query("COMMIT");
     return deleteResult.rows[0];
-
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();
   }
 };
-
 
 const getTotalExpensesByDate = async (date) => {
   const result = await pool.query(
