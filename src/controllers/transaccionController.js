@@ -9,7 +9,8 @@ import {
   getDailyBalanceByDate,
   getTotalExpensesByMonth,
   getTotalIncomeByMonth,
-  getMonthlyBalanceByMonth
+  getMonthlyBalanceByMonth,
+  getTransactionsByEstadoFalse,
 } from "../models/transaccionModel.js";
 
 
@@ -26,24 +27,28 @@ const createTransactionController = async (req, res) => {
     note,
     description,
     recurrent,
-    tax_type
+    tax_type,
+    timerecurrent
   } = req.body;
 
   // Validación de entrada
-  if (!userId || !accountId || !categoryId || !amount || !type || !date) {
-    return res.status(400).json({ error: "Todos los campos son obligatorios" });
+  const requiredFields = ['userId', 'accountId', 'categoryId', 'amount', 'type', 'date'];
+  const missingFields = requiredFields.filter(field => !req.body[field]);
+
+  if (missingFields.length > 0) {
+    return res.status(400).json({ error: `Campos faltantes: ${missingFields.join(', ')}` });
   }
 
-  if (typeof amount !== "number" || amount <= 0) {
-    return res
-      .status(400)
-      .json({ error: "El monto debe ser un número positivo" });
+  if (typeof amount !== 'number' || amount <= 0) {
+    return res.status(400).json({ error: "El monto debe ser un número positivo" });
   }
 
-  if (type !== "income" && type !== "expense") {
-    return res
-      .status(400)
-      .json({ error: 'El tipo de transacción debe ser "income" o "expense"' });
+  if (type !== 'income' && type !== 'expense') {
+    return res.status(400).json({ error: 'El tipo de transacción debe ser "income" o "expense"' });
+  }
+
+  if (recurrent && (!timerecurrent || typeof timerecurrent !== 'number' || timerecurrent <= 0)) {
+    return res.status(400).json({ error: "Para transacciones recurrentes, timerecurrent debe ser un número positivo" });
   }
 
   try {
@@ -53,31 +58,30 @@ const createTransactionController = async (req, res) => {
       categoryId,
       amount,
       type,
-      date,
+      new Date(date),
       note,
       description,
       recurrent,
-      tax_type
+      tax_type,
+      timerecurrent
     );
     res.status(201).json(transaction);
   } catch (err) {
     console.error("Error creando transacción", err);
 
-    // Manejo de errores más específico
-    if (err.message === "Cuenta no encontrada") {
-      return res.status(404).json({ error: "Cuenta no encontrada" });
-    } else if (
-      err.message ===
-      "Fondos insuficientes para realizar la transacción de gasto"
-    ) {
-      return res.status(400).json({ error: "Fondos insuficientes" });
-    } else if (err.message === "Tipo de transacción no válido") {
-      return res.status(400).json({ error: "Tipo de transacción no válido" });
-    }
+    const errorMessages = {
+      "Cuenta no encontrada": { status: 404, message: "Cuenta no encontrada" },
+      "Fondos insuficientes para realizar la transacción de gasto": { status: 400, message: "Fondos insuficientes" },
+      "Tipo de transacción no válido": { status: 400, message: "Tipo de transacción no válido" },
+      "No se pudo crear la transacción": { status: 500, message: "Error al crear la transacción" }
+    };
 
-    res.status(500).json({ error: "Error creando transacción" });
+    const error = errorMessages[err.message] || { status: 500, message: "Error interno del servidor" };
+    res.status(error.status).json({ error: error.message });
   }
 };
+
+//----------------GET TARNSACTIONS CONTROLLER------------------------
 
 const getTransactionsController = async (req, res) => {
   try {
@@ -88,6 +92,18 @@ const getTransactionsController = async (req, res) => {
     res.status(500).json({ error: "Error obteniendo transacciones" });
   }
 };
+
+
+const getTransactionsControllerEstadoFalse = async (req, res) => {
+  try {
+    const transactionsFalse = await getTransactionsByEstadoFalse();
+    res.status(200).json(transactionsFalse);
+  } catch (err) {
+    console.error("Error obteniendo transacciones", err);
+    res.status(500).json({ error: "Error obteniendo transacciones" });
+  }
+}; 
+
 
 const getTransactionByIdController = async (req, res) => {
   const { id } = req.params;
@@ -269,5 +285,6 @@ export {
   getTotalExpensesByMonthController,
   getTotalIncomeByMonthController,
   getMonthlyBalanceByMonthController,
+  getTransactionsControllerEstadoFalse
 };
 

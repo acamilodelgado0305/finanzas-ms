@@ -11,6 +11,7 @@ import {
   getTotalExpensesByMonthController,
   getTotalIncomeByMonthController,
   getMonthlyBalanceByMonthController,
+  getTransactionsControllerEstadoFalse,
 } from "../controllers/transaccionController.js";
 
 const router = express.Router();
@@ -20,10 +21,12 @@ router.post("/transactions", createTransactionController);
 
 // GET
 router.get("/transactions", getTransactionsController);
+router.get("/transactions/pending", getTransactionsControllerEstadoFalse);
 router.get("/transactions/:id", getTransactionByIdController);
 router.get("/transactions/expenses/:date", getTotalExpensesByDateController);
 router.get("/transactions/income/:date", getTotalIncomeByDateController);
 router.get("/transactions/balance/:date", getDailyBalanceByDateController);
+
 
 // Rutas para cálculos mensuales
 router.get("/transactions/expenses/month/:month", getTotalExpensesByMonthController);
