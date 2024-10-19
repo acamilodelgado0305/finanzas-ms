@@ -5,6 +5,7 @@ import accountRoutes from "./routes/accountRoutes.js";
 import categorieRouter from "./routes/categorieRoutes.js";
 import transaccionRouter from "./routes/transaccionRoutes.js";
 import transferRouter from "./routes/transfersRoutes.js";
+import pagospendingRouter from "./routes/pagospendingRoutes.js"
 
 const app = express();
 import dotenv from "dotenv";
@@ -34,6 +35,8 @@ app.use("/api", accountRoutes);
 app.use("/api", categorieRouter);
 app.use("/api", transaccionRouter);
 app.use("/api", transferRouter);
+app.use("/api", pagospendingRouter);
+
 
 // Iniciar el servidor
 app.listen(PORT, () => {
