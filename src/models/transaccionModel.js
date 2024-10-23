@@ -111,6 +111,7 @@ const getTransactionById = async (id) => {
 };
 
 //----------------------------------------- ACTUALIZAR TRANSACCION--------------------------------------------------------------//
+//----------------------------------------- ACTUALIZAR TRANSACCION--------------------------------------------------------------//
 const updateTransaction = async (
   id,
   userId,
@@ -122,12 +123,14 @@ const updateTransaction = async (
   note,
   description,
   recurrent,
-  tax_type
+  tax_type,
+  estado,       // Añadido
+  timerecurrent // Añadido
 ) => {
   const result = await pool.query(
     `UPDATE transactions
-     SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, note = $7, description = $8, recurrent = $9, tax_type = $10
-     WHERE id = $11 RETURNING *`,
+     SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, note = $7, description = $8, recurrent = $9, tax_type = $10, estado = $11, timerecurrent = $12
+     WHERE id = $13 RETURNING *`,
     [
       userId,
       accountId,
@@ -138,12 +141,15 @@ const updateTransaction = async (
       note,
       description,
       recurrent,
-      id,
       tax_type,
+      estado,          // Añadido
+      timerecurrent,   // Añadido
+      id
     ]
   );
   return result.rows[0];
 };
+
 
 //--------------------------------ELIMINAR TRANSACCION--------------------------------------------//
 

@@ -133,8 +133,11 @@ const updateTransactionController = async (req, res) => {
     note,
     description,
     recurrent,
-    tax_type
+    tax_type,
+    estado,         // Añadido
+    timerecurrent   // Añadido
   } = req.body;
+
   try {
     const transaction = await updateTransaction(
       id,
@@ -147,17 +150,22 @@ const updateTransactionController = async (req, res) => {
       note,
       description,
       recurrent,
-      tax_type
+      tax_type,
+      estado,        // Añadido
+      timerecurrent  // Añadido
     );
+
     if (!transaction) {
       return res.status(404).json({ error: "Transacción no encontrada" });
     }
+    
     res.status(200).json(transaction);
   } catch (err) {
     console.error("Error actualizando transacción", err);
     res.status(500).json({ error: "Error actualizando transacción" });
   }
 };
+
 
 const deleteTransactionController = async (req, res) => {
   const { id } = req.params;
