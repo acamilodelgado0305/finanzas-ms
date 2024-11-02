@@ -128,37 +128,144 @@ export const getExpenseById = async (req, res) => {
   }
 };
 
-// Actualizar un gasto
 export const updateExpense = async (req, res) => {
   const { id } = req.params;
-  const { user_id, account_id, category_id, amount, type, date, note, description, recurrent, tax_type, timerecurrent, estado } = req.body;
+  const {
+    user_id,
+    account_id,
+    category_id,
+    amount,
+    type,
+    date,
+    note,
+    description,
+    recurrent,
+    tax_type,
+    timerecurrent,
+    estado
+  } = req.body;
+
+  // Validación básica de entrada
+  if (!user_id || !account_id || !category_id || !amount || !date) {
+    return res.status(400).json({
+      error: 'Campos requeridos faltantes',
+      details: 'Los campos user_id, account_id, category_id, amount y date son obligatorios'
+    });
+  }
+
+  // Validación del monto
+  if (typeof amount !== 'number' || amount <= 0) {
+    return res.status(400).json({
+      error: 'Monto inválido',
+      details: 'El monto debe ser un número positivo'
+    });
+  }
+
   try {
     const result = await pool.query(
       `UPDATE expenses
       SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, note = $7, description = $8,
       recurrent = $9, tax_type = $10, timerecurrent = $11, estado = $12
       WHERE id = $13 RETURNING *`,
-      [user_id, account_id, category_id, amount, type, date, note, description, recurrent, tax_type, timerecurrent, estado, id]
+      [
+        user_id,
+        account_id,
+        category_id,
+        amount,
+        type,
+        date,
+        note,
+        description,
+        recurrent,
+        tax_type,
+        timerecurrent,
+        estado,
+        id
+      ]
     );
+
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Gasto no encontrado' });
+      return res.status(404).json({
+        error: 'Gasto no encontrado',
+        details: `No se encontró ningún gasto con el ID ${id}`
+      });
     }
-    res.json(result.rows[0]);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Gasto actualizado exitosamente',
+      data: result.rows[0]
+    });
+
   } catch (error) {
-    res.status(500).json({ error: 'Error al actualizar el gasto' });
+    console.error('Error en updateExpense:', error);
+
+    // Manejo de errores específicos de PostgreSQL
+    if (error.code === '23505') {
+      return res.status(409).json({
+        error: 'Conflicto',
+        details: 'Ya existe un registro con estos datos únicos'
+      });
+    }
+
+    if (error.code === '22007') {
+      return res.status(400).json({
+        error: 'Formato de fecha inválido',
+        details: 'El formato de la fecha no es válido'
+      });
+    }
+
+    // Error genérico del servidor
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      details: error.message
+    });
   }
 };
 
-// Eliminar un gasto
 export const deleteExpense = async (req, res) => {
   const { id } = req.params;
+
+  // Validación de entrada
+  if (!id) {
+    return res.status(400).json({
+      error: 'ID faltante',
+      details: 'Se requiere un ID para eliminar un gasto'
+    });
+  }
+
   try {
     const result = await pool.query('DELETE FROM expenses WHERE id = $1 RETURNING *', [id]);
+
+    // Verificación si el gasto existe
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Gasto no encontrado' });
+      return res.status(404).json({
+        error: 'Gasto no encontrado',
+        details: `No se encontró ningún gasto con el ID ${id}`
+      });
     }
-    res.status(204).send();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Gasto eliminado exitosamente',
+      data: result.rows[0] // Opcional, puede ser útil para confirmar el objeto eliminado
+    });
+
   } catch (error) {
-    res.status(500).json({ error: 'Error al eliminar el gasto' });
+    console.error('Error en deleteExpense:', error);
+
+    // Manejo de errores específicos de PostgreSQL
+    if (error.code === '23503') { // Error de referencia de clave foránea
+      return res.status(409).json({
+        error: 'Conflicto de dependencia',
+        details: 'Este gasto no puede ser eliminado porque está referenciado en otras tablas'
+      });
+    }
+
+    // Error genérico del servidor
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      details: error.message
+    });
   }
 };
