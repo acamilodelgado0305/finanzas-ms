@@ -6,6 +6,9 @@ import categorieRouter from "./routes/categorieRoutes.js";
 import transaccionRouter from "./routes/transaccionRoutes.js";
 import transferRouter from "./routes/transfersRoutes.js";
 import pagospendingRouter from "./routes/pagospendingRoutes.js"
+import incomesRoutes from './routes/incomes.js';
+import expensesRoutes from './routes/expenses.js';
+
 
 const app = express();
 import dotenv from "dotenv";
@@ -36,6 +39,9 @@ app.use("/api", categorieRouter);
 app.use("/api", transaccionRouter);
 app.use("/api", transferRouter);
 app.use("/api", pagospendingRouter);
+app.use("/api", incomesRoutes);
+app.use("/api", expensesRoutes);
+
 
 
 // Iniciar el servidor
