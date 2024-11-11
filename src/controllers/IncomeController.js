@@ -11,7 +11,6 @@ export const getAllIncomes = async (req, res) => {
   }
 };
 
-
 export const createIncome = async (req, res) => {
   try {
     const {
@@ -23,28 +22,84 @@ export const createIncome = async (req, res) => {
       date,
       note,
       description,
-      recurrent,
-      tax_type,
-      timerecurrent,
-      estado
+      estado,
+      amountfev,
+      amountdiverse
     } = req.body;
 
     // Generar UUID
     const id = uuidv4();
 
-    // Validación de campos requeridos
-    if (!user_id || !account_id || !category_id || !amount || !date) {
+    // Validación de campos requeridos básicos
+    if (!user_id || !account_id || !category_id || !date) {
       return res.status(400).json({
         error: 'Campos requeridos faltantes',
-        details: 'Los campos user_id, account_id, category_id, amount y date son obligatorios'
+        details: 'Los campos user_id, account_id, category_id y date son obligatorios'
       });
     }
 
-    // Validación de amount
-    if (typeof amount !== 'number' || amount <= 0) {
+    // Obtener la categoría de la base de datos y verificar que sea de tipo 'income'
+    const categoryQuery = 'SELECT name, type FROM categories WHERE id = $1';
+    const categoryResult = await pool.query(categoryQuery, [category_id]);
+
+    if (categoryResult.rows.length === 0) {
       return res.status(400).json({
-        error: 'Monto inválido',
-        details: 'El monto debe ser un número positivo'
+        error: 'Categoría inválida',
+        details: 'La categoría especificada no existe'
+      });
+    }
+
+    const { name: categoryName, type: categoryType } = categoryResult.rows[0];
+
+    if (categoryType !== 'income') {
+      return res.status(400).json({
+        error: 'Categoría no válida',
+        details: 'La categoría debe ser de tipo income'
+      });
+    }
+
+    let finalAmount;
+
+    // Validación según el tipo de categoría
+    if (categoryName.toLowerCase() === 'arqueo') {
+      // Validación para categoría Arqueo
+      if (amountfev === undefined || amountdiverse === undefined) {
+        return res.status(400).json({
+          error: 'Campos requeridos faltantes',
+          details: 'Para la categoría Arqueo, los campos amountfev y amountdiverse son obligatorios'
+        });
+      }
+
+      if (typeof amountfev !== 'number' || typeof amountdiverse !== 'number') {
+        return res.status(400).json({
+          error: 'Montos inválidos',
+          details: 'Los montos FEV y Diverso deben ser números'
+        });
+      }
+
+      finalAmount = amountfev + amountdiverse;
+
+    } else if (categoryName.toLowerCase() === 'venta') {
+      // Validación para categoría Venta
+      if (!amount) {
+        return res.status(400).json({
+          error: 'Campo requerido faltante',
+          details: 'Para la categoría Venta, el campo amount es obligatorio'
+        });
+      }
+
+      if (typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({
+          error: 'Monto inválido',
+          details: 'El monto debe ser un número positivo'
+        });
+      }
+
+      finalAmount = amount;
+    } else {
+      return res.status(400).json({
+        error: 'Categoría no válida',
+        details: 'La categoría debe ser Arqueo o Venta'
       });
     }
 
@@ -58,13 +113,12 @@ export const createIncome = async (req, res) => {
         type, 
         date, 
         note, 
-        description, 
-        recurrent, 
-        tax_type, 
-        timerecurrent, 
-        estado
+        description,
+        estado,
+        amountfev,
+        amountdiverse
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8, $9, $10, $11, $12, $13) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8, $9, $10, $11, $12) 
       RETURNING *`;
 
     const values = [
@@ -72,15 +126,14 @@ export const createIncome = async (req, res) => {
       user_id,
       account_id,
       category_id,
-      amount,
+      finalAmount,
       type || '',
       date,
       note || '',
       description || '',
-      recurrent || false,
-      tax_type || 'IVA',
-      timerecurrent || null,
-      estado || false
+      estado || false,
+      categoryName.toLowerCase() === 'arqueo' ? amountfev : 0,
+      categoryName.toLowerCase() === 'arqueo' ? amountdiverse : 0
     ];
 
     const result = await pool.query(query, values);
@@ -91,7 +144,7 @@ export const createIncome = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error en createExpense:', error);
+    console.error('Error en createIncome:', error);
 
     if (error.code === '23505') {
       return res.status(409).json({
@@ -113,6 +166,8 @@ export const createIncome = async (req, res) => {
     });
   }
 };
+
+
 
 // Obtener un ingreso por ID
 export const getIncomeById = async (req, res) => {
