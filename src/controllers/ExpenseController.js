@@ -23,13 +23,13 @@ export const createExpense = async (req, res) => {
       date,
       note,
       description,
-      recurrent,
-      tax_type,
-      timerecurrent,
-      estado
+      recurrent = false,
+      tax_type = 'IVA',
+      timerecurrent = null,
+      estado = false,
+      provider_id = null
     } = req.body;
 
-    // Generar UUID
     const id = uuidv4();
 
     // Validación de campos requeridos
@@ -40,11 +40,19 @@ export const createExpense = async (req, res) => {
       });
     }
 
-    // Validación de amount
+    // Validación del monto
     if (typeof amount !== 'number' || amount <= 0) {
       return res.status(400).json({
         error: 'Monto inválido',
         details: 'El monto debe ser un número positivo'
+      });
+    }
+
+    // Validación del formato de fecha (opcional)
+    if (isNaN(Date.parse(date))) {
+      return res.status(400).json({
+        error: 'Fecha inválida',
+        details: 'El formato de fecha debe ser válido'
       });
     }
 
@@ -62,9 +70,10 @@ export const createExpense = async (req, res) => {
         recurrent, 
         tax_type, 
         timerecurrent, 
-        estado
+        estado,
+        provider_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8, $9, $10, $11, $12, $13) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8, $9, $10, $11, $12, $13, $14) 
       RETURNING *`;
 
     const values = [
@@ -77,10 +86,11 @@ export const createExpense = async (req, res) => {
       date,
       note || '',
       description || '',
-      recurrent || false,
-      tax_type || 'IVA',
-      timerecurrent || null,
-      estado || false
+      recurrent,
+      tax_type,
+      timerecurrent,
+      estado,
+      provider_id
     ];
 
     const result = await pool.query(query, values);
@@ -92,27 +102,12 @@ export const createExpense = async (req, res) => {
 
   } catch (error) {
     console.error('Error en createExpense:', error);
-
-    if (error.code === '23505') {
-      return res.status(409).json({
-        error: 'Conflicto',
-        details: 'Ya existe un registro con estos datos'
-      });
-    }
-
-    if (error.code === '22007') {
-      return res.status(400).json({
-        error: 'Formato de fecha inválido',
-        details: 'El formato de la fecha no es válido'
-      });
-    }
-
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message
     });
   }
-};
+}
 
 // Obtener un gasto por ID
 export const getExpenseById = async (req, res) => {
@@ -142,10 +137,10 @@ export const updateExpense = async (req, res) => {
     recurrent,
     tax_type,
     timerecurrent,
-    estado
+    estado,
+    provider_id // Nuevo campo
   } = req.body;
 
-  // Validación básica de entrada
   if (!user_id || !account_id || !category_id || !amount || !date) {
     return res.status(400).json({
       error: 'Campos requeridos faltantes',
@@ -153,7 +148,6 @@ export const updateExpense = async (req, res) => {
     });
   }
 
-  // Validación del monto
   if (typeof amount !== 'number' || amount <= 0) {
     return res.status(400).json({
       error: 'Monto inválido',
@@ -164,9 +158,20 @@ export const updateExpense = async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE expenses
-      SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, note = $7, description = $8,
-      recurrent = $9, tax_type = $10, timerecurrent = $11, estado = $12
-      WHERE id = $13 RETURNING *`,
+      SET user_id = $1, 
+          account_id = $2, 
+          category_id = $3, 
+          amount = $4, 
+          type = $5, 
+          date = $6, 
+          note = $7, 
+          description = $8, 
+          recurrent = $9, 
+          tax_type = $10, 
+          timerecurrent = $11, 
+          estado = $12,
+          provider_id = $13
+      WHERE id = $14 RETURNING *`,
       [
         user_id,
         account_id,
@@ -180,6 +185,7 @@ export const updateExpense = async (req, res) => {
         tax_type,
         timerecurrent,
         estado,
+        provider_id || null, // Valor por defecto
         id
       ]
     );
@@ -199,29 +205,13 @@ export const updateExpense = async (req, res) => {
 
   } catch (error) {
     console.error('Error en updateExpense:', error);
-
-    // Manejo de errores específicos de PostgreSQL
-    if (error.code === '23505') {
-      return res.status(409).json({
-        error: 'Conflicto',
-        details: 'Ya existe un registro con estos datos únicos'
-      });
-    }
-
-    if (error.code === '22007') {
-      return res.status(400).json({
-        error: 'Formato de fecha inválido',
-        details: 'El formato de la fecha no es válido'
-      });
-    }
-
-    // Error genérico del servidor
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message
     });
   }
 };
+
 
 export const deleteExpense = async (req, res) => {
   const { id } = req.params;
