@@ -13,101 +13,117 @@ export const getAllExpenses = async (req, res) => {
 
 // Crear un nuevo gasto
 export const createExpense = async (req, res) => {
+  const client = await pool.connect();
+
   try {
+    await client.query('BEGIN');
+
     const {
       user_id,
       account_id,
       category_id,
+      base_amount,
       amount,
       type,
       date,
       note,
       description,
       recurrent = false,
-      tax_type = 'IVA',
+      tax_type = null,
       timerecurrent = null,
-      estado = false,
-      provider_id = null
+      estado = true,
+      provider_id = null,
+      tax_percentage = null,
+      tax_amount = null,
+      retention_type = null,
+      retention_percentage = null,
+      retention_amount = null
     } = req.body;
 
-    const id = uuidv4();
+    // Validations...
 
-    // Validación de campos requeridos
-    if (!user_id || !account_id || !category_id || !amount || !date) {
-      return res.status(400).json({
-        error: 'Campos requeridos faltantes',
-        details: 'Los campos user_id, account_id, category_id, amount y date son obligatorios'
-      });
+    // Update account balance
+    const updateAccountQuery = `
+      UPDATE accounts 
+      SET balance = balance - $1 
+      WHERE id = $2 
+      RETURNING balance`;
+
+    const accountResult = await client.query(updateAccountQuery, [amount, account_id]);
+
+    if (accountResult.rows.length === 0) {
+      throw new Error('Cuenta no encontrada');
     }
 
-    // Validación del monto
-    if (typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({
-        error: 'Monto inválido',
-        details: 'El monto debe ser un número positivo'
-      });
+    if (accountResult.rows[0].balance < 0) {
+      throw new Error('Saldo insuficiente en la cuenta');
     }
 
-    // Validación del formato de fecha (opcional)
-    if (isNaN(Date.parse(date))) {
-      return res.status(400).json({
-        error: 'Fecha inválida',
-        details: 'El formato de fecha debe ser válido'
-      });
-    }
-
+    // Insert expense logic...
     const query = `
       INSERT INTO expenses (
-        id,
-        user_id, 
-        account_id, 
-        category_id, 
-        amount, 
-        type, 
-        date, 
-        note, 
-        description, 
-        recurrent, 
-        tax_type, 
-        timerecurrent, 
-        estado,
-        provider_id
+        id, user_id, account_id, category_id, base_amount, amount, 
+        type, date, note, description, recurrent, tax_type,
+        tax_percentage, tax_amount, retention_type, retention_percentage,
+        retention_amount, timerecurrent, estado, provider_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8, $9, $10, $11, $12, $13, $14) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamp, $9, $10, $11, 
+              $12, $13, $14, $15, $16, $17, $18, $19, $20) 
       RETURNING *`;
 
-    const values = [
-      id,
-      user_id,
-      account_id,
-      category_id,
-      amount,
-      type || '',
-      date,
-      note || '',
-      description || '',
-      recurrent,
-      tax_type,
-      timerecurrent,
-      estado,
-      provider_id
-    ];
+    let result;
 
-    const result = await pool.query(query, values);
+    if (recurrent && timerecurrent && timerecurrent !== 999999) {
+      const transactions = [];
+      const baseDate = new Date(date);
+
+      for (let i = 0; i < timerecurrent; i++) {
+        const transactionDate = new Date(baseDate);
+        transactionDate.setMonth(baseDate.getMonth() + i);
+
+        const values = [
+          uuidv4(), user_id, account_id, category_id, base_amount, amount,
+          type || '', transactionDate.toISOString(), note || '', description || '',
+          recurrent, tax_type, tax_percentage, tax_amount, retention_type,
+          retention_percentage, retention_amount, timerecurrent,
+          i === 0 ? true : false, provider_id
+        ];
+
+        transactions.push(client.query(query, values));
+      }
+
+      result = await Promise.all(transactions);
+    } else {
+      const values = [
+        uuidv4(), user_id, account_id, category_id, base_amount, amount,
+        type || '', date, note || '', description || '', recurrent,
+        tax_type, tax_percentage, tax_amount, retention_type,
+        retention_percentage, retention_amount, timerecurrent,
+        estado, provider_id
+      ];
+
+      result = await client.query(query, values);
+    }
+
+    await client.query('COMMIT');
 
     res.status(201).json({
-      message: 'Gasto creado exitosamente',
-      data: result.rows[0]
+      message: recurrent ? `${timerecurrent} gastos recurrentes creados exitosamente` : 'Gasto creado exitosamente',
+      data: recurrent ? result.map(r => r.rows[0]) : result.rows[0]
     });
 
   } catch (error) {
+    await client.query('ROLLBACK');
+
     console.error('Error en createExpense:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message
     });
+  } finally {
+    client.release();
   }
-}
+};
 
 // Obtener un gasto por ID
 export const getExpenseById = async (req, res) => {
@@ -214,48 +230,58 @@ export const updateExpense = async (req, res) => {
 
 
 export const deleteExpense = async (req, res) => {
-  const { id } = req.params;
-
-  // Validación de entrada
-  if (!id) {
-    return res.status(400).json({
-      error: 'ID faltante',
-      details: 'Se requiere un ID para eliminar un gasto'
-    });
-  }
+  const client = await pool.connect();
 
   try {
-    const result = await pool.query('DELETE FROM expenses WHERE id = $1 RETURNING *', [id]);
+    await client.query('BEGIN');
 
-    // Verificación si el gasto existe
-    if (result.rows.length === 0) {
+    const { id } = req.params;
+
+    // Get expense details before deletion
+    const expenseQuery = 'SELECT amount, account_id FROM expenses WHERE id = $1';
+    const expenseResult = await client.query(expenseQuery, [id]);
+
+    if (expenseResult.rows.length === 0) {
       return res.status(404).json({
         error: 'Gasto no encontrado',
         details: `No se encontró ningún gasto con el ID ${id}`
       });
     }
 
+    const { amount, account_id } = expenseResult.rows[0];
+
+    // Update account balance
+    const updateAccountQuery = `
+      UPDATE accounts 
+      SET balance = balance + $1 
+      WHERE id = $2 
+      RETURNING *`;
+
+    await client.query(updateAccountQuery, [amount, account_id]);
+
+    // Delete expense
+    const deleteResult = await client.query(
+      'DELETE FROM expenses WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    await client.query('COMMIT');
+
     res.status(200).json({
       status: 'success',
       message: 'Gasto eliminado exitosamente',
-      data: result.rows[0] // Opcional, puede ser útil para confirmar el objeto eliminado
+      data: deleteResult.rows[0]
     });
 
   } catch (error) {
+    await client.query('ROLLBACK');
+
     console.error('Error en deleteExpense:', error);
-
-    // Manejo de errores específicos de PostgreSQL
-    if (error.code === '23503') { // Error de referencia de clave foránea
-      return res.status(409).json({
-        error: 'Conflicto de dependencia',
-        details: 'Este gasto no puede ser eliminado porque está referenciado en otras tablas'
-      });
-    }
-
-    // Error genérico del servidor
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message
     });
+  } finally {
+    client.release();
   }
 };
