@@ -140,78 +140,152 @@ export const getExpenseById = async (req, res) => {
 };
 
 export const updateExpense = async (req, res) => {
-  const { id } = req.params;
-  const {
-    user_id,
-    account_id,
-    category_id,
-    amount,
-    type,
-    date,
-    note,
-    description,
-    recurrent,
-    tax_type,
-    timerecurrent,
-    estado,
-    provider_id // Nuevo campo
-  } = req.body;
-
-  if (!user_id || !account_id || !category_id || !amount || !date) {
-    return res.status(400).json({
-      error: 'Campos requeridos faltantes',
-      details: 'Los campos user_id, account_id, category_id, amount y date son obligatorios'
-    });
-  }
-
-  if (typeof amount !== 'number' || amount <= 0) {
-    return res.status(400).json({
-      error: 'Monto inválido',
-      details: 'El monto debe ser un número positivo'
-    });
-  }
+  const client = await pool.connect();
 
   try {
-    const result = await pool.query(
-      `UPDATE expenses
-      SET user_id = $1, 
-          account_id = $2, 
-          category_id = $3, 
-          amount = $4, 
-          type = $5, 
-          date = $6, 
-          note = $7, 
-          description = $8, 
-          recurrent = $9, 
-          tax_type = $10, 
-          timerecurrent = $11, 
-          estado = $12,
-          provider_id = $13
-      WHERE id = $14 RETURNING *`,
-      [
-        user_id,
-        account_id,
-        category_id,
-        amount,
-        type,
-        date,
-        note,
-        description,
-        recurrent,
-        tax_type,
-        timerecurrent,
-        estado,
-        provider_id || null, // Valor por defecto
-        id
-      ]
-    );
+    await client.query('BEGIN');
 
-    if (result.rows.length === 0) {
+    const { id } = req.params;
+    const {
+      user_id,
+      account_id,
+      category_id,
+      base_amount,
+      amount,
+      type,
+      date,
+      note,
+      description,
+      recurrent,
+      tax_type,
+      tax_percentage,
+      tax_amount,
+      retention_type,
+      retention_percentage,
+      retention_amount,
+      timerecurrent,
+      estado,
+      provider_id
+    } = req.body;
+
+    // Validate required fields
+    if (!user_id || !account_id || !category_id || !base_amount || !amount || !date) {
+      return res.status(400).json({
+        error: 'Campos requeridos faltantes',
+        details: 'Los campos user_id, account_id, category_id, base_amount, amount y date son obligatorios'
+      });
+    }
+
+    // Validate amounts
+    if (typeof base_amount !== 'number' || base_amount <= 0 || typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({
+        error: 'Montos inválidos',
+        details: 'Los montos base y total deben ser números positivos'
+      });
+    }
+
+    // Get the current expense details
+    const currentExpenseQuery = 'SELECT amount, account_id FROM expenses WHERE id = $1';
+    const currentExpense = await client.query(currentExpenseQuery, [id]);
+
+    if (currentExpense.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({
         error: 'Gasto no encontrado',
         details: `No se encontró ningún gasto con el ID ${id}`
       });
     }
+
+    const oldAmount = currentExpense.rows[0].amount;
+    const oldAccountId = currentExpense.rows[0].account_id;
+
+    // If the account is being changed, update both old and new account balances
+    if (oldAccountId !== account_id) {
+      // Return amount to old account
+      await client.query(
+        'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
+        [oldAmount, oldAccountId]
+      );
+
+      // Deduct from new account
+      const newAccountResult = await client.query(
+        'UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING balance',
+        [amount, account_id]
+      );
+
+      if (newAccountResult.rows[0].balance < 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'Saldo insuficiente',
+          details: 'La cuenta destino no tiene saldo suficiente'
+        });
+      }
+    } else {
+      // Same account, just update the difference
+      const difference = amount - oldAmount;
+      const accountResult = await client.query(
+        'UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING balance',
+        [difference, account_id]
+      );
+
+      if (accountResult.rows[0].balance < 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'Saldo insuficiente',
+          details: 'La cuenta no tiene saldo suficiente para el nuevo monto'
+        });
+      }
+    }
+
+    // Update the expense
+    const updateExpenseQuery = `
+      UPDATE expenses SET 
+        user_id = $1,
+        account_id = $2,
+        category_id = $3,
+        base_amount = $4,
+        amount = $5,
+        type = $6,
+        date = $7,
+        note = $8,
+        description = $9,
+        recurrent = $10,
+        tax_type = $11,
+        tax_percentage = $12,
+        tax_amount = $13,
+        retention_type = $14,
+        retention_percentage = $15,
+        retention_amount = $16,
+        timerecurrent = $17,
+        estado = $18,
+        provider_id = $19
+      WHERE id = $20
+      RETURNING *`;
+
+    const result = await client.query(updateExpenseQuery, [
+      user_id,
+      account_id,
+      category_id,
+      base_amount,
+      amount,
+      type,
+      date,
+      note || '',
+      description || '',
+      recurrent,
+      tax_type,
+      tax_percentage,
+      tax_amount,
+      retention_type,
+      retention_percentage,
+      retention_amount,
+      timerecurrent,
+      estado,
+      provider_id || null,
+      id
+    ]);
+
+    await client.query('COMMIT');
 
     res.status(200).json({
       status: 'success',
@@ -220,11 +294,14 @@ export const updateExpense = async (req, res) => {
     });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error en updateExpense:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message
     });
+  } finally {
+    client.release();
   }
 };
 
