@@ -9,6 +9,7 @@ import pagospendingRouter from "./routes/pagospendingRoutes.js"
 import incomesRoutes from './routes/incomes.js';
 import expensesRoutes from './routes/expenses.js';
 import providerRoutes from './routes/Providers.js';
+import balanceRoutes from './routes/balanceRoutes.js'
 
 
 const app = express();
@@ -43,6 +44,7 @@ app.use("/api", pagospendingRouter);
 app.use("/api", incomesRoutes);
 app.use("/api", expensesRoutes);
 app.use("/api", providerRoutes);
+app.use("/api", balanceRoutes);
 
 
 
