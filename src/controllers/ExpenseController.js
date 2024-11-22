@@ -25,6 +25,7 @@ export const createExpense = async (req, res) => {
       base_amount,
       amount,
       type,
+      sub_type,  // Added sub_type
       date,
       note,
       description,
@@ -63,12 +64,12 @@ export const createExpense = async (req, res) => {
     const query = `
       INSERT INTO expenses (
         id, user_id, account_id, category_id, base_amount, amount, 
-        type, date, note, description, recurrent, tax_type,
+        type, sub_type, date, note, description, recurrent, tax_type,
         tax_percentage, tax_amount, retention_type, retention_percentage,
         retention_amount, timerecurrent, estado, provider_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamp, $9, $10, $11, 
-              $12, $13, $14, $15, $16, $17, $18, $19, $20) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamp, $10, $11, $12, 
+              $13, $14, $15, $16, $17, $18, $19, $20, $21) 
       RETURNING *`;
 
     let result;
@@ -83,9 +84,9 @@ export const createExpense = async (req, res) => {
 
         const values = [
           uuidv4(), user_id, account_id, category_id, base_amount, amount,
-          type || '', transactionDate.toISOString(), note || '', description || '',
-          recurrent, tax_type, tax_percentage, tax_amount, retention_type,
-          retention_percentage, retention_amount, timerecurrent,
+          type || '', sub_type || '', transactionDate.toISOString(), note || '', 
+          description || '', recurrent, tax_type, tax_percentage, tax_amount, 
+          retention_type, retention_percentage, retention_amount, timerecurrent,
           i === 0 ? true : false, provider_id
         ];
 
@@ -96,10 +97,10 @@ export const createExpense = async (req, res) => {
     } else {
       const values = [
         uuidv4(), user_id, account_id, category_id, base_amount, amount,
-        type || '', date, note || '', description || '', recurrent,
-        tax_type, tax_percentage, tax_amount, retention_type,
-        retention_percentage, retention_amount, timerecurrent,
-        estado, provider_id
+        type || '', sub_type || '', date, note || '', description || '', 
+        recurrent, tax_type, tax_percentage, tax_amount, retention_type,
+        retention_percentage, retention_amount, timerecurrent, estado, 
+        provider_id
       ];
 
       result = await client.query(query, values);
