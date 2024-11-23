@@ -241,7 +241,9 @@ export const updateIncome = async (req, res) => {
       recurrent,
       tax_type,
       timerecurrent,
-      estado
+      estado,
+      amountfev,
+      amountdiverse
     } = req.body;
 
     // Validación de campos requeridos
@@ -290,7 +292,9 @@ export const updateIncome = async (req, res) => {
       recurrent,
       tax_type,
       timerecurrent,
-      estado
+      estado,
+      amountfev,
+      amountdiverse
     };
 
     for (const [field, value] of Object.entries(fieldMappings)) {
@@ -301,7 +305,7 @@ export const updateIncome = async (req, res) => {
       }
     }
 
-    values.push(id); // Añadir el ID al final del array de valores
+    values.push(id);
 
     const query = `
       UPDATE incomes 
@@ -352,6 +356,7 @@ export const updateIncome = async (req, res) => {
     });
   }
 };
+
 
 // -----------------------------------------Eliminar un ingreso----------------------------------------//
 export const deleteIncome = async (req, res) => {
