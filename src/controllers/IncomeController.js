@@ -216,8 +216,9 @@ export const getIncomeById = async (req, res) => {
   }
 };
 
-// Actualizar un ingreso
 export const updateIncome = async (req, res) => {
+  const client = await pool.connect();
+
   try {
     const { id } = req.params;
 
@@ -225,7 +226,7 @@ export const updateIncome = async (req, res) => {
     if (!id) {
       return res.status(400).json({
         error: 'ID inválido',
-        details: 'Se requiere un ID válido para actualizar el ingreso'
+        details: 'Se requiere un ID válido para actualizar el ingreso',
       });
     }
 
@@ -236,19 +237,21 @@ export const updateIncome = async (req, res) => {
       amount,
       type,
       date,
-      note,
+      note, // URLs de nuevas imágenes
       description,
       recurrent,
       tax_type,
       timerecurrent,
-      estado
+      estado,
+      amountfev,
+      amountdiverse,
     } = req.body;
 
     // Validación de campos requeridos
     if (!user_id || !account_id || !category_id || !amount || !date) {
       return res.status(400).json({
         error: 'Campos requeridos faltantes',
-        details: 'Los campos user_id, account_id, category_id, amount y date son obligatorios'
+        details: 'Los campos user_id, account_id, category_id, amount y date son obligatorios',
       });
     }
 
@@ -256,12 +259,12 @@ export const updateIncome = async (req, res) => {
     if (typeof amount !== 'number' || amount <= 0) {
       return res.status(400).json({
         error: 'Monto inválido',
-        details: 'El monto debe ser un número positivo'
+        details: 'El monto debe ser un número positivo',
       });
     }
 
     // Validar que el ingreso existe antes de actualizarlo
-    const existingIncome = await pool.query(
+    const existingIncome = await client.query(
       'SELECT * FROM incomes WHERE id = $1',
       [id]
     );
@@ -269,8 +272,18 @@ export const updateIncome = async (req, res) => {
     if (existingIncome.rows.length === 0) {
       return res.status(404).json({
         error: 'Ingreso no encontrado',
-        details: `No se encontró un ingreso con el ID: ${id}`
+        details: `No se encontró un ingreso con el ID: ${id}`,
       });
+    }
+
+    // Manejo de eliminación de imágenes previas si cambió el campo `note`
+    const previousNote = existingIncome.rows[0].note;
+
+    if (previousNote && previousNote.trim() && note !== previousNote) {
+      const previousImages = previousNote.trim().split("\n");
+      // Aquí podrías implementar una función para eliminar imágenes del servidor/CDN
+      console.log("Eliminando imágenes previas:", previousImages);
+      // deleteImagesFromServer(previousImages); // Implementa esta función según tu almacenamiento
     }
 
     // Construir la consulta dinámicamente solo con los campos proporcionados
@@ -290,7 +303,9 @@ export const updateIncome = async (req, res) => {
       recurrent,
       tax_type,
       timerecurrent,
-      estado
+      estado,
+      amountfev,
+      amountdiverse,
     };
 
     for (const [field, value] of Object.entries(fieldMappings)) {
@@ -301,7 +316,7 @@ export const updateIncome = async (req, res) => {
       }
     }
 
-    values.push(id); // Añadir el ID al final del array de valores
+    values.push(id);
 
     const query = `
       UPDATE incomes 
@@ -310,48 +325,50 @@ export const updateIncome = async (req, res) => {
       RETURNING *
     `;
 
-    const result = await pool.query(query, values);
+    const result = await client.query(query, values);
 
     // Verificar si la actualización fue exitosa
     if (result.rows.length > 0) {
       res.status(200).json({
         message: 'Ingreso actualizado exitosamente',
-        data: result.rows[0]
+        data: result.rows[0],
       });
     } else {
       throw new Error('Error al actualizar el ingreso');
     }
-
   } catch (error) {
     console.error('Error en updateIncome:', error);
 
     if (error.code === '23505') {
       return res.status(409).json({
         error: 'Conflicto',
-        details: 'Ya existe un registro con estos datos'
+        details: 'Ya existe un registro con estos datos',
       });
     }
 
     if (error.code === '22007') {
       return res.status(400).json({
         error: 'Formato de fecha inválido',
-        details: 'El formato de la fecha no es válido'
+        details: 'El formato de la fecha no es válido',
       });
     }
 
     if (error.code === '23503') {
       return res.status(400).json({
         error: 'Error de referencia',
-        details: 'Una o más referencias (user_id, account_id, category_id) no existen'
+        details: 'Una o más referencias (user_id, account_id, category_id) no existen',
       });
     }
 
     res.status(500).json({
       error: 'Error interno del servidor',
-      details: error.message
+      details: error.message,
     });
+  } finally {
+    client.release();
   }
 };
+
 
 // -----------------------------------------Eliminar un ingreso----------------------------------------//
 export const deleteIncome = async (req, res) => {
