@@ -4,7 +4,8 @@ import {
   createIncome,
   getIncomeById,
   updateIncome,
-  deleteIncome
+  deleteIncome,
+  manageVouchers
 } from '../controllers/IncomeController.js';
 
 const router = express.Router();
@@ -14,5 +15,6 @@ router.post('/incomes', createIncome);
 router.get('/incomes/:id', getIncomeById);
 router.put('/incomes/:id', updateIncome);
 router.delete('/incomes/:id', deleteIncome);
+router.patch('/incomes/:id/vouchers', manageVouchers); // Nueva ruta para gestionar vouchers
 
 export default router;

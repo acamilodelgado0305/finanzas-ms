@@ -1,7 +1,7 @@
 import pool from '../database.js';
 import { v4 as uuidv4 } from 'uuid';
 
-// Obtener todos los ingresos
+//--------------------------OBTENER TODOS LOS INGRESOS------------------------------//
 export const getAllIncomes = async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM incomes');
@@ -10,6 +10,9 @@ export const getAllIncomes = async (req, res) => {
     res.status(500).json({ error: 'Error al obtener los ingresos' });
   }
 };
+
+
+//----------------------------CREAR INGRESO---------------------------------------//
 
 export const createIncome = async (req, res) => {
   const client = await pool.connect();
@@ -24,7 +27,7 @@ export const createIncome = async (req, res) => {
       amount,
       type,
       date,
-      note,
+      voucher,
       description,
       estado,
       amountfev,
@@ -131,6 +134,15 @@ export const createIncome = async (req, res) => {
     const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
     await client.query(updateAccountQuery, [newBalance, account_id]);
 
+    // Procesar los vouchers: convertir string con \n a array formato PostgreSQL
+    const processedVoucher = voucher
+      ? '{' + voucher
+        .split('\n')
+        .filter(v => v.trim())
+        .map(v => `"${v.replace(/"/g, '\\"')}"`)
+        .join(',') + '}'
+      : null;
+
     // Crear el ingreso
     const createIncomeQuery = `
       INSERT INTO incomes (
@@ -141,13 +153,13 @@ export const createIncome = async (req, res) => {
         amount, 
         type, 
         date, 
-        note, 
+        voucher, 
         description,
         estado,
         amountfev,
         amountdiverse
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8, $9, $10, $11, $12) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8::text[], $9, $10, $11, $12) 
       RETURNING *`;
 
     const values = [
@@ -158,7 +170,7 @@ export const createIncome = async (req, res) => {
       finalAmount,
       type || '',
       date,
-      note || '',
+      processedVoucher,
       description || '',
       estado || false,
       categoryName.toLowerCase() === 'arqueo' ? amountfev : 0,
@@ -202,7 +214,7 @@ export const createIncome = async (req, res) => {
 };
 
 
-// Obtener un ingreso por ID
+//---------------------------- OBTENER INGRESO POR ID------------------------------------//
 export const getIncomeById = async (req, res) => {
   const { id } = req.params;
   try {
@@ -215,7 +227,7 @@ export const getIncomeById = async (req, res) => {
     res.status(500).json({ error: 'Error al obtener el ingreso' });
   }
 };
-
+//-------------------------UPDATE INCOME---------------------------------------//
 export const updateIncome = async (req, res) => {
   const client = await pool.connect();
 
@@ -237,7 +249,7 @@ export const updateIncome = async (req, res) => {
       amount,
       type,
       date,
-      note, // URLs de nuevas imágenes
+      voucher, // URLs de nuevas imágenes
       description,
       recurrent,
       tax_type,
@@ -276,11 +288,11 @@ export const updateIncome = async (req, res) => {
       });
     }
 
-    // Manejo de eliminación de imágenes previas si cambió el campo `note`
-    const previousNote = existingIncome.rows[0].note;
+    // Manejo de eliminación de imágenes previas si cambió el campo `voucher`
+    const previousvoucher = existingIncome.rows[0].voucher;
 
-    if (previousNote && previousNote.trim() && note !== previousNote) {
-      const previousImages = previousNote.trim().split("\n");
+    if (previousvoucher && previousvoucher.trim() && voucher !== previousvoucher) {
+      const previousImages = previousvoucher.trim().split("\n");
       // Aquí podrías implementar una función para eliminar imágenes del servidor/CDN
       console.log("Eliminando imágenes previas:", previousImages);
       // deleteImagesFromServer(previousImages); // Implementa esta función según tu almacenamiento
@@ -298,7 +310,7 @@ export const updateIncome = async (req, res) => {
       amount,
       type,
       date,
-      note,
+      voucher,
       description,
       recurrent,
       tax_type,
@@ -370,7 +382,7 @@ export const updateIncome = async (req, res) => {
 };
 
 
-// -----------------------------------------Eliminar un ingreso----------------------------------------//
+// -----------------------------------------ELIMINAR UN INGRESO----------------------------------------//
 export const deleteIncome = async (req, res) => {
   const client = await pool.connect();
 
@@ -468,3 +480,116 @@ export const deleteIncome = async (req, res) => {
     client.release();
   }
 };
+
+
+
+//---------------------------------- MANEJADOR DE COMPROBANTES--------------------------------//
+
+export const manageVouchers = async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const { id, action, vouchers } = req.body;
+
+    // Validar que el id existe
+    if (!id) {
+      return res.status(400).json({
+        error: 'Campo requerido faltante',
+        details: 'El campo id es obligatorio'
+      });
+    }
+
+    // Obtener el registro actual
+    const getCurrentVouchersQuery = 'SELECT voucher FROM incomes WHERE id = $1';
+    const currentResult = await client.query(getCurrentVouchersQuery, [id]);
+
+    if (currentResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Registro no encontrado',
+        details: 'El ingreso especificado no existe'
+      });
+    }
+
+    let currentVouchers = currentResult.rows[0].voucher || [];
+    let updatedVouchers = [...currentVouchers];
+
+    switch (action) {
+      case 'add':
+        // Validar que se proporcionaron vouchers para agregar
+        if (!vouchers || !Array.isArray(vouchers)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: 'Datos inválidos',
+            details: 'Se deben proporcionar vouchers para agregar'
+          });
+        }
+        // Agregar nuevos vouchers al array existente
+        updatedVouchers = [...currentVouchers, ...vouchers];
+        break;
+
+      case 'remove':
+        // Validar que se proporcionaron vouchers para eliminar
+        if (!vouchers || !Array.isArray(vouchers)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: 'Datos inválidos',
+            details: 'Se deben proporcionar vouchers para eliminar'
+          });
+        }
+        // Filtrar los vouchers que no están en la lista para eliminar
+        updatedVouchers = currentVouchers.filter(v => !vouchers.includes(v));
+        break;
+
+      case 'update':
+        // Validar que se proporcionó el nuevo array de vouchers
+        if (!vouchers || !Array.isArray(vouchers)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: 'Datos inválidos',
+            details: 'Se debe proporcionar el nuevo array de vouchers'
+          });
+        }
+        // Reemplazar completamente el array de vouchers
+        updatedVouchers = vouchers;
+        break;
+
+      default:
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'Acción inválida',
+          details: 'La acción debe ser "add", "remove" o "update"'
+        });
+    }
+
+    // Convertir el array a formato PostgreSQL
+    const processedVouchers = '{' + updatedVouchers
+      .filter(v => v.trim())
+      .map(v => `"${v.replace(/"/g, '\\"')}"`)
+      .join(',') + '}';
+
+    // Actualizar los vouchers en la base de datos
+    const updateQuery = 'UPDATE incomes SET voucher = $1::text[] WHERE id = $2 RETURNING *';
+    const result = await client.query(updateQuery, [processedVouchers, id]);
+
+    await client.query('COMMIT');
+
+    res.status(200).json({
+      message: 'Vouchers actualizados exitosamente',
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error en manageVouchers:', error);
+
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      details: error.message
+    });
+  } finally {
+    client.release();
+  }
+};                                                  
