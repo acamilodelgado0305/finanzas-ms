@@ -592,4 +592,44 @@ export const manageVouchers = async (req, res) => {
   } finally {
     client.release();
   }
-};                                                  
+};   
+
+
+//-------OBTENER COMPROBANTES-------
+export const getIncomeVouchers = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validar que se proporcionó un ID
+    if (!id) {
+      return res.status(400).json({
+        error: 'ID no proporcionado',
+        details: 'Se requiere un ID válido para obtener los comprobantes'
+      });
+    }
+
+    // Consultar solo la columna voucher del ingreso específico
+    const query = 'SELECT voucher FROM incomes WHERE id = $1';
+    const result = await pool.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Ingreso no encontrado',
+        details: `No se encontró un ingreso con el ID: ${id}`
+      });
+    }
+
+    // Devolver el array de comprobantes
+    res.status(200).json({
+      id,
+      vouchers: result.rows[0].voucher || []
+    });
+
+  } catch (error) {
+    console.error('Error en getIncomeVouchers:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      details: error.message
+    });
+  }
+};
