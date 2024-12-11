@@ -143,7 +143,7 @@ export const createIncome = async (req, res) => {
         .join(',') + '}'
       : null;
 
-    // Crear el ingreso
+    
     const createIncomeQuery = `
       INSERT INTO incomes (
         id,

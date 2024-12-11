@@ -4,7 +4,8 @@ import {
   createExpense,
   getExpenseById,
   updateExpense,
-  deleteExpense
+  deleteExpense,
+  getExpenseVouchers
 } from '../controllers/ExpenseController.js';
 
 const router = express.Router();
@@ -14,5 +15,6 @@ router.post('/expenses', createExpense);
 router.get('/expenses/:id', getExpenseById);
 router.put('/expenses/:id', updateExpense);
 router.delete('/expenses/:id', deleteExpense);
+router.get('/expenses/:id/vouchers', getExpenseVouchers);
 
 export default router;

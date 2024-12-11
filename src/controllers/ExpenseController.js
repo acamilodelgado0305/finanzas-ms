@@ -11,7 +11,7 @@ export const getAllExpenses = async (req, res) => {
   }
 };
 
-// Crear un nuevo gasto
+//---------------------------------------CREAR UN NUEVO GASTO-------------------------------//
 export const createExpense = async (req, res) => {
   const client = await pool.connect();
 
@@ -25,9 +25,9 @@ export const createExpense = async (req, res) => {
       base_amount,
       amount,
       type,
-      sub_type,  // Added sub_type
+      sub_type,
       date,
-      note,
+      voucher,
       description,
       recurrent = false,
       tax_type = null,
@@ -41,7 +41,14 @@ export const createExpense = async (req, res) => {
       retention_amount = null
     } = req.body;
 
-    // Validations...
+    // Procesar los vouchers: convertir string con \n a array formato PostgreSQL
+    const processedVoucher = voucher
+      ? '{' + voucher
+        .split('\n')
+        .filter(v => v.trim())
+        .map(v => `"${v.replace(/"/g, '\\"')}"`)
+        .join(',') + '}'
+      : null;
 
     // Update account balance
     const updateAccountQuery = `
@@ -60,15 +67,14 @@ export const createExpense = async (req, res) => {
       throw new Error('Saldo insuficiente en la cuenta');
     }
 
-    // Insert expense logic...
     const query = `
       INSERT INTO expenses (
         id, user_id, account_id, category_id, base_amount, amount, 
-        type, sub_type, date, note, description, recurrent, tax_type,
+        type, sub_type, date, voucher, description, recurrent, tax_type,
         tax_percentage, tax_amount, retention_type, retention_percentage,
         retention_amount, timerecurrent, estado, provider_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamp, $10, $11, $12, 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamp, $10::text[], $11, $12, 
               $13, $14, $15, $16, $17, $18, $19, $20, $21) 
       RETURNING *`;
 
@@ -84,8 +90,8 @@ export const createExpense = async (req, res) => {
 
         const values = [
           uuidv4(), user_id, account_id, category_id, base_amount, amount,
-          type || '', sub_type || '', transactionDate.toISOString(), note || '', 
-          description || '', recurrent, tax_type, tax_percentage, tax_amount, 
+          type || '', sub_type || '', transactionDate.toISOString(), processedVoucher,
+          description || '', recurrent, tax_type, tax_percentage, tax_amount,
           retention_type, retention_percentage, retention_amount, timerecurrent,
           i === 0 ? true : false, provider_id
         ];
@@ -97,9 +103,9 @@ export const createExpense = async (req, res) => {
     } else {
       const values = [
         uuidv4(), user_id, account_id, category_id, base_amount, amount,
-        type || '', sub_type || '', date, note || '', description || '', 
+        type || '', sub_type || '', date, processedVoucher, description || '',
         recurrent, tax_type, tax_percentage, tax_amount, retention_type,
-        retention_percentage, retention_amount, timerecurrent, estado, 
+        retention_percentage, retention_amount, timerecurrent, estado,
         provider_id
       ];
 
@@ -126,7 +132,7 @@ export const createExpense = async (req, res) => {
   }
 };
 
-// Obtener un gasto por ID
+//------------------------OBETNER GASTO POR ID------------------------//
 export const getExpenseById = async (req, res) => {
   const { id } = req.params;
   try {
@@ -155,7 +161,7 @@ export const updateExpense = async (req, res) => {
       amount,
       type,
       date,
-      note,
+      voucher,
       description,
       recurrent,
       tax_type,
@@ -248,7 +254,7 @@ export const updateExpense = async (req, res) => {
         amount = $5,
         type = $6,
         date = $7,
-        note = $8,
+        voucher = $8,
         description = $9,
         recurrent = $10,
         tax_type = $11,
@@ -271,7 +277,7 @@ export const updateExpense = async (req, res) => {
       amount,
       type,
       date,
-      note || '',
+      voucher || '',
       description || '',
       recurrent,
       tax_type,
@@ -361,5 +367,46 @@ export const deleteExpense = async (req, res) => {
     });
   } finally {
     client.release();
+  }
+};
+
+
+
+//-------OBTENER COMPROBANTES-------
+export const getExpenseVouchers = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validar que se proporcionó un ID
+    if (!id) {
+      return res.status(400).json({
+        error: 'ID no proporcionado',
+        details: 'Se requiere un ID válido para obtener los comprobantes'
+      });
+    }
+
+    // Consultar solo la columna voucher del ingreso específico
+    const query = 'SELECT voucher FROM expenses WHERE id = $1';
+    const result = await pool.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Gasto no encontrado',
+        details: `No se encontró un ingreso con el ID: ${id}`
+      });
+    }
+
+    // Devolver el array de comprobantes
+    res.status(200).json({
+      id,
+      vouchers: result.rows[0].voucher || []
+    });
+
+  } catch (error) {
+    console.error('Error en getExpenseVouchers:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      details: error.message
+    });
   }
 };
