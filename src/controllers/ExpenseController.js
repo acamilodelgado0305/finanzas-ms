@@ -372,6 +372,117 @@ export const deleteExpense = async (req, res) => {
 
 
 
+export const ExpenseManageVouchers = async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const { id, action, vouchers } = req.body;
+
+    // Validar que el id existe
+    if (!id) {
+      return res.status(400).json({
+        error: 'Campo requerido faltante',
+        details: 'El campo id es obligatorio'
+      });
+    }
+
+    // Obtener el registro actual
+    const getCurrentVouchersQuery = 'SELECT voucher FROM expenses WHERE id = $1';
+    const currentResult = await client.query(getCurrentVouchersQuery, [id]);
+
+    if (currentResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Registro no encontrado',
+        details: 'El ingreso especificado no existe'
+      });
+    }
+
+    let currentVouchers = currentResult.rows[0].voucher || [];
+    let updatedVouchers = [...currentVouchers];
+
+    switch (action) {
+      case 'add':
+        // Validar que se proporcionaron vouchers para agregar
+        if (!vouchers || !Array.isArray(vouchers)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: 'Datos inválidos',
+            details: 'Se deben proporcionar vouchers para agregar'
+          });
+        }
+        // Agregar nuevos vouchers al array existente
+        updatedVouchers = [...currentVouchers, ...vouchers];
+        break;
+
+      case 'remove':
+        // Validar que se proporcionaron vouchers para eliminar
+        if (!vouchers || !Array.isArray(vouchers)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: 'Datos inválidos',
+            details: 'Se deben proporcionar vouchers para eliminar'
+          });
+        }
+        // Filtrar los vouchers que no están en la lista para eliminar
+        updatedVouchers = currentVouchers.filter(v => !vouchers.includes(v));
+        break;
+
+      case 'update':
+        // Validar que se proporcionó el nuevo array de vouchers
+        if (!vouchers || !Array.isArray(vouchers)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: 'Datos inválidos',
+            details: 'Se debe proporcionar el nuevo array de vouchers'
+          });
+        }
+        // Reemplazar completamente el array de vouchers
+        updatedVouchers = vouchers;
+        break;
+
+      default:
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'Acción inválida',
+          details: 'La acción debe ser "add", "remove" o "update"'
+        });
+    }
+
+    // Convertir el array a formato PostgreSQL
+    const processedVouchers = '{' + updatedVouchers
+      .filter(v => v.trim())
+      .map(v => `"${v.replace(/"/g, '\\"')}"`)
+      .join(',') + '}';
+
+    // Actualizar los vouchers en la base de datos
+    const updateQuery = 'UPDATE expenses SET voucher = $1::text[] WHERE id = $2 RETURNING *';
+    const result = await client.query(updateQuery, [processedVouchers, id]);
+
+    await client.query('COMMIT');
+
+    res.status(200).json({
+      message: 'Vouchers actualizados exitosamente',
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error en manageVouchers:', error);
+
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      details: error.message
+    });
+  } finally {
+    client.release();
+  }
+};   
+
+
+
 //-------OBTENER COMPROBANTES-------
 export const getExpenseVouchers = async (req, res) => {
   try {
