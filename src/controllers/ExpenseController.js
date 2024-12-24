@@ -1,6 +1,6 @@
 import pool from '../database.js';
 import { v4 as uuidv4 } from 'uuid';
-
+import { setTimeout } from "timers/promises";
 // Obtener todos los gastos
 export const getAllExpenses = async (req, res) => {
   try {
@@ -38,7 +38,7 @@ export const createExpense = async (req, res) => {
       tax_amount = null,
       retention_type = null,
       retention_percentage = null,
-      retention_amount = null
+      retention_amount = null,
     } = req.body;
 
     const processedVoucher = voucher
@@ -76,85 +76,113 @@ export const createExpense = async (req, res) => {
               $13, $14, $15, $16, $17, $18, $19, $20, $21) 
       RETURNING *`;
 
-    let result;
+    let createdCount = 0;
+    const baseDate = new Date(date);
+    const results = [];
 
-    if (recurrent && timerecurrent && timerecurrent !== 999999) {
-      const transactions = [];
-      const baseDate = new Date(date);
+    // Incluir el gasto inicial
+    const initialExpense = {
+      id: uuidv4(),
+      user_id,
+      account_id,
+      category_id,
+      base_amount,
+      amount,
+      type: type || '',
+      sub_type: sub_type || '',
+      date: baseDate.toISOString(),
+      voucher: processedVoucher,
+      description: description || '',
+      recurrent,
+      tax_type,
+      tax_percentage,
+      tax_amount,
+      retention_type,
+      retention_percentage,
+      retention_amount,
+      timerecurrent,
+      estado,
+      provider_id,
+    };
 
-      // Iterar por la cantidad de meses recurrentes (incluyendo el gasto inicial de hoy)
-      for (let i = 0; i < timerecurrent; i++) {
-        // Calcular la fecha de cada gasto
-        const transactionDate = new Date(baseDate);
-        transactionDate.setMonth(baseDate.getMonth() + i);
+    const initialResult = await client.query(query, Object.values(initialExpense));
+    results.push(initialResult.rows[0]);
+    createdCount++;
 
-        // Validar si ya existe un gasto para este mes
-        const checkExistingQuery = `
-          SELECT id FROM expenses
-          WHERE account_id = $1
-          AND category_id = $2
-          AND DATE_PART('year', date) = $3
-          AND DATE_PART('month', date) = $4`;
+    // Crear los gastos recurrentes
+    for (let i = 1; i < timerecurrent; i++) {
+      await setTimeout(100); // Introducir un retraso de 100ms entre las creaciones
 
-        const year = transactionDate.getFullYear();
-        const month = transactionDate.getMonth() + 1; // Mes en formato 1-12
+      const transactionDate = new Date(baseDate);
+      transactionDate.setMonth(baseDate.getMonth() + i);
 
-        const existingExpense = await client.query(checkExistingQuery, [
+      const year = transactionDate.getFullYear();
+      const month = transactionDate.getMonth() + 1;
+
+      const checkExistingQuery = `
+        SELECT id FROM expenses
+        WHERE account_id = $1
+        AND category_id = $2
+        AND DATE_PART('year', date) = $3
+        AND DATE_PART('month', date) = $4`;
+
+      const existingExpense = await client.query(checkExistingQuery, [
+        account_id,
+        category_id,
+        year,
+        month,
+      ]);
+
+      if (existingExpense.rows.length === 0) {
+        const values = [
+          uuidv4(),
+          user_id,
           account_id,
           category_id,
-          year,
-          month
-        ]);
+          base_amount,
+          amount,
+          type || '',
+          sub_type || '',
+          transactionDate.toISOString(),
+          processedVoucher,
+          description || '',
+          recurrent,
+          tax_type,
+          tax_percentage,
+          tax_amount,
+          retention_type,
+          retention_percentage,
+          retention_amount,
+          timerecurrent,
+          false,
+          provider_id,
+        ];
 
-        // Si no existe un gasto para este mes, crear uno nuevo
-        if (existingExpense.rows.length === 0) {
-          const values = [
-            uuidv4(), user_id, account_id, category_id, base_amount, amount,
-            type || '', sub_type || '', transactionDate.toISOString(), processedVoucher,
-            description || '', recurrent, tax_type, tax_percentage, tax_amount,
-            retention_type, retention_percentage, retention_amount, timerecurrent,
-            false, provider_id
-          ];
+        const result = await client.query(query, values);
+        results.push(result.rows[0]);
+        createdCount++;
 
-          transactions.push(client.query(query, values));
-        }
+        if (createdCount === timerecurrent) break; // Garantizar que no se exceda el límite
       }
-
-      // Ejecutar todas las transacciones
-      result = await Promise.all(transactions);
-
-    } else {
-      const values = [
-        uuidv4(), user_id, account_id, category_id, base_amount, amount,
-        type || '', sub_type || '', date, processedVoucher, description || '',
-        recurrent, tax_type, tax_percentage, tax_amount, retention_type,
-        retention_percentage, retention_amount, timerecurrent, estado,
-        provider_id
-      ];
-
-      result = await client.query(query, values);
     }
 
     await client.query('COMMIT');
 
     res.status(201).json({
-      message: recurrent ? `${timerecurrent} gastos recurrentes creados exitosamente` : 'Gasto creado exitosamente',
-      data: recurrent ? result.map(r => r.rows[0]) : result.rows[0]
+      message: `${createdCount} gastos recurrentes creados exitosamente`,
+      data: results,
     });
-
   } catch (error) {
     await client.query('ROLLBACK');
-
     console.error('Error en createExpense:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
-      details: error.message
+      details: error.message,
     });
   } finally {
     client.release();
   }
 };
-
 
 //------------------------OBETNER GASTO POR ID------------------------//
 export const getExpenseById = async (req, res) => {
