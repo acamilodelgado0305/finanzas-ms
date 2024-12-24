@@ -41,7 +41,6 @@ export const createExpense = async (req, res) => {
       retention_amount = null
     } = req.body;
 
-    // Procesar los vouchers: convertir string con \n a array formato PostgreSQL
     const processedVoucher = voucher
       ? '{' + voucher
         .split('\n')
@@ -50,7 +49,6 @@ export const createExpense = async (req, res) => {
         .join(',') + '}'
       : null;
 
-    // Update account balance
     const updateAccountQuery = `
       UPDATE accounts 
       SET balance = balance - $1 
@@ -84,22 +82,47 @@ export const createExpense = async (req, res) => {
       const transactions = [];
       const baseDate = new Date(date);
 
+      // Iterar por la cantidad de meses recurrentes (incluyendo el gasto inicial de hoy)
       for (let i = 0; i < timerecurrent; i++) {
+        // Calcular la fecha de cada gasto
         const transactionDate = new Date(baseDate);
         transactionDate.setMonth(baseDate.getMonth() + i);
 
-        const values = [
-          uuidv4(), user_id, account_id, category_id, base_amount, amount,
-          type || '', sub_type || '', transactionDate.toISOString(), processedVoucher,
-          description || '', recurrent, tax_type, tax_percentage, tax_amount,
-          retention_type, retention_percentage, retention_amount, timerecurrent,
-          i === 0 ? true : false, provider_id
-        ];
+        // Validar si ya existe un gasto para este mes
+        const checkExistingQuery = `
+          SELECT id FROM expenses
+          WHERE account_id = $1
+          AND category_id = $2
+          AND DATE_PART('year', date) = $3
+          AND DATE_PART('month', date) = $4`;
 
-        transactions.push(client.query(query, values));
+        const year = transactionDate.getFullYear();
+        const month = transactionDate.getMonth() + 1; // Mes en formato 1-12
+
+        const existingExpense = await client.query(checkExistingQuery, [
+          account_id,
+          category_id,
+          year,
+          month
+        ]);
+
+        // Si no existe un gasto para este mes, crear uno nuevo
+        if (existingExpense.rows.length === 0) {
+          const values = [
+            uuidv4(), user_id, account_id, category_id, base_amount, amount,
+            type || '', sub_type || '', transactionDate.toISOString(), processedVoucher,
+            description || '', recurrent, tax_type, tax_percentage, tax_amount,
+            retention_type, retention_percentage, retention_amount, timerecurrent,
+            false, provider_id
+          ];
+
+          transactions.push(client.query(query, values));
+        }
       }
 
+      // Ejecutar todas las transacciones
       result = await Promise.all(transactions);
+
     } else {
       const values = [
         uuidv4(), user_id, account_id, category_id, base_amount, amount,
@@ -131,6 +154,7 @@ export const createExpense = async (req, res) => {
     client.release();
   }
 };
+
 
 //------------------------OBETNER GASTO POR ID------------------------//
 export const getExpenseById = async (req, res) => {
@@ -479,7 +503,7 @@ export const ExpenseManageVouchers = async (req, res) => {
   } finally {
     client.release();
   }
-};   
+};
 
 
 
