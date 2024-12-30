@@ -5,7 +5,7 @@ const createTransfer = async (
   fromAccountId,
   toAccountId,
   amount,
-  note,
+  vouchers,
   description
 ) => {
   const client = await pool.connect();
@@ -35,8 +35,8 @@ const createTransfer = async (
 
     // Registrar la transferencia
     const transferResult = await client.query(
-      "INSERT INTO transfers (user_id, from_account_id, to_account_id, amount, note, description) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
-      [userId, fromAccountId, toAccountId, amount, note, description]
+      "INSERT INTO transfers (user_id, from_account_id, to_account_id, amount,vouchers , description) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+      [userId, fromAccountId, toAccountId, amount, vouchers, description]
     );
 
     await client.query("COMMIT");
@@ -68,13 +68,14 @@ const updateTransfer = async (
   toAccountId,
   amount,
   date,
-  note,
+  vouchers,
+
   description
 ) => {
   const result = await pool.query(
-    `UPDATE transfers SET user_id = $1, from_account_id = $2, to_account_id = $3, amount = $4, date = $5, note = $6, description = $7
+    `UPDATE transfers SET user_id = $1, from_account_id = $2, to_account_id = $3, amount = $4, date = $5, vouchers = $6, description = $7
      WHERE id = $8 RETURNING *`,
-    [userId, fromAccountId, toAccountId, amount, date, note, description, id]
+    [userId, fromAccountId, toAccountId, amount, date, vouchers, description, id]
   );
   return result.rows[0];
 };

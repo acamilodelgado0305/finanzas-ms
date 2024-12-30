@@ -7,24 +7,32 @@ import {
 } from "../models/transfersModel.js";
 
 const createTransferController = async (req, res) => {
-  const { userId, fromAccountId, toAccountId, amount, note, description } =
-    req.body;
+  const { userId, fromAccountId, toAccountId, amount, vouchers, description } = req.body;
 
   try {
+    // Convertir `vouchers` a un arreglo si es una cadena
+    const formattedVouchers = typeof vouchers === "string"
+      ? vouchers.split("\n").filter((url) => url.trim() !== "")
+      : Array.isArray(vouchers)
+        ? vouchers
+        : [];
+
     const transfer = await createTransfer(
       userId,
       fromAccountId,
       toAccountId,
       amount,
-      note,
+      formattedVouchers,
       description
     );
+
     res.status(201).json(transfer);
   } catch (err) {
     console.error("Error creando transferencia", err);
     res.status(500).json({ error: "Error creando transferencia" });
   }
 };
+
 
 const getTransfersController = async (req, res) => {
   try {
@@ -58,7 +66,7 @@ const updateTransferController = async (req, res) => {
     toAccountId,
     amount,
     date,
-    note,
+    vouchers,
     description,
   } = req.body;
   try {
@@ -69,7 +77,7 @@ const updateTransferController = async (req, res) => {
       toAccountId,
       amount,
       date,
-      note,
+      vouchers,
       description
     );
     if (!transfer) {
