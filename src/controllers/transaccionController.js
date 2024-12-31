@@ -24,7 +24,7 @@ const createTransactionController = async (req, res) => {
     amount,
     type,
     date,
-    note,
+    vouchers,
     description,
     recurrent,
     tax_type,
@@ -59,7 +59,7 @@ const createTransactionController = async (req, res) => {
       amount,
       type,
       new Date(date),
-      note,
+      vouchers,
       description,
       recurrent,
       tax_type,
@@ -102,7 +102,7 @@ const getTransactionsControllerEstadoFalse = async (req, res) => {
     console.error("Error obteniendo transacciones", err);
     res.status(500).json({ error: "Error obteniendo transacciones" });
   }
-}; 
+};
 
 
 const getTransactionByIdController = async (req, res) => {
@@ -130,7 +130,7 @@ const updateTransactionController = async (req, res) => {
     amount,
     type,
     date,
-    note,
+    vouchers,
     description,
     recurrent,
     tax_type,
@@ -147,7 +147,7 @@ const updateTransactionController = async (req, res) => {
       amount,
       type,
       date,
-      note,
+      vouchers,
       description,
       recurrent,
       tax_type,
@@ -158,7 +158,7 @@ const updateTransactionController = async (req, res) => {
     if (!transaction) {
       return res.status(404).json({ error: "Transacción no encontrada" });
     }
-    
+
     res.status(200).json(transaction);
   } catch (err) {
     console.error("Error actualizando transacción", err);

@@ -8,7 +8,7 @@ const createTransaction = async (
   amount,
   type,
   date,
-  note,
+  vouchers,
   description,
   recurrent,
   tax_type,
@@ -22,10 +22,10 @@ const createTransaction = async (
     const createSingleTransaction = async (transactionDate, isOriginal = false) => {
       const { rows } = await client.query(
         `INSERT INTO transactions 
-         (user_id, account_id, category_id, amount, type, date, note, description, recurrent, tax_type, estado, timerecurrent)
+         (user_id, account_id, category_id, amount, type, date, vouchers, description, recurrent, tax_type, estado, timerecurrent)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
          RETURNING *`,
-        [userId, accountId, categoryId, amount, type, transactionDate, note, description, recurrent, tax_type, isOriginal, timerecurrent]
+        [userId, accountId, categoryId, amount, type, transactionDate, vouchers, description, recurrent, tax_type, isOriginal, timerecurrent]
       );
 
       if (rows.length === 0) {
@@ -120,7 +120,7 @@ const updateTransaction = async (
   amount,
   type,
   date,
-  note,
+  vouchers,
   description,
   recurrent,
   tax_type,
@@ -129,7 +129,7 @@ const updateTransaction = async (
 ) => {
   const result = await pool.query(
     `UPDATE transactions
-     SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, note = $7, description = $8, recurrent = $9, tax_type = $10, estado = $11, timerecurrent = $12
+     SET user_id = $1, account_id = $2, category_id = $3, amount = $4, type = $5, date = $6, vouchers = $7, description = $8, recurrent = $9, tax_type = $10, estado = $11, timerecurrent = $12
      WHERE id = $13 RETURNING *`,
     [
       userId,
@@ -138,7 +138,7 @@ const updateTransaction = async (
       amount,
       type,
       date,
-      note,
+      vouchers,
       description,
       recurrent,
       tax_type,
