@@ -49,20 +49,23 @@ export const createExpense = async (req, res) => {
         .join(',') + '}'
       : null;
 
-    const updateAccountQuery = `
-      UPDATE accounts 
-      SET balance = balance - $1 
-      WHERE id = $2 
-      RETURNING balance`;
+    // Solo actualizamos el balance de la cuenta si estado es true
+    if (estado) {
+      const updateAccountQuery = `
+        UPDATE accounts 
+        SET balance = balance - $1 
+        WHERE id = $2 
+        RETURNING balance`;
 
-    const accountResult = await client.query(updateAccountQuery, [amount, account_id]);
+      const accountResult = await client.query(updateAccountQuery, [amount, account_id]);
 
-    if (accountResult.rows.length === 0) {
-      throw new Error('Cuenta no encontrada');
-    }
+      if (accountResult.rows.length === 0) {
+        throw new Error('Cuenta no encontrada');
+      }
 
-    if (accountResult.rows[0].balance < 0) {
-      throw new Error('Saldo insuficiente en la cuenta');
+      if (accountResult.rows[0].balance < 0) {
+        throw new Error('Saldo insuficiente en la cuenta');
+      }
     }
 
     // Primero verificamos si ya existen gastos para los meses que vamos a crear
@@ -111,6 +114,27 @@ export const createExpense = async (req, res) => {
 
       // Solo crear si no existe un gasto para este mes
       if (!existingMonthsSet.has(monthKey)) {
+        const currentEstado = i === 0 ? estado : false;
+        
+        // Solo actualizar la cuenta si es el primer gasto y estado es true
+        if (i === 0 && currentEstado && !estado) {
+          const updateAccountQuery = `
+            UPDATE accounts 
+            SET balance = balance - $1 
+            WHERE id = $2 
+            RETURNING balance`;
+
+          const accountResult = await client.query(updateAccountQuery, [amount, account_id]);
+
+          if (accountResult.rows.length === 0) {
+            throw new Error('Cuenta no encontrada');
+          }
+
+          if (accountResult.rows[0].balance < 0) {
+            throw new Error('Saldo insuficiente en la cuenta');
+          }
+        }
+
         const values = [
           uuidv4(),
           user_id,
@@ -131,7 +155,7 @@ export const createExpense = async (req, res) => {
           retention_percentage,
           retention_amount,
           timerecurrent,
-          i === 0 ? estado : false,
+          currentEstado,
           provider_id,
         ];
 
@@ -565,41 +589,82 @@ export const getExpensesWithFalseState = async (req, res) => {
 
 export const updateExpenseStatus = async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { id } = req.params;
     const { estado } = req.body;
 
     if (estado === undefined) {
       return res.status(400).json({
-        error: 'El estado es requerido'
+        error: 'El estado es requerido',
       });
     }
 
-    const query = `
+    await client.query('BEGIN');
+
+    // Recuperamos el gasto para obtener los detalles necesarios
+    const expenseQuery = `
+      SELECT amount, account_id, estado 
+      FROM expenses 
+      WHERE id = $1
+    `;
+    const expenseResult = await client.query(expenseQuery, [id]);
+
+    if (expenseResult.rows.length === 0) {
+      throw new Error('Gasto no encontrado');
+    }
+
+    const expense = expenseResult.rows[0];
+
+    // Si el estado ya es igual al solicitado, no hacemos nada
+    if (expense.estado === estado) {
+      return res.status(200).json({
+        message: 'El estado del gasto ya está actualizado',
+        data: expense,
+      });
+    }
+
+    // Si el nuevo estado es true, descontamos el monto de la cuenta
+    if (estado) {
+      const updateAccountQuery = `
+        UPDATE accounts 
+        SET balance = balance - $1 
+        WHERE id = $2 
+        RETURNING balance
+      `;
+
+      const accountResult = await client.query(updateAccountQuery, [expense.amount, expense.account_id]);
+
+      if (accountResult.rows.length === 0) {
+        throw new Error('Cuenta no encontrada');
+      }
+
+      if (accountResult.rows[0].balance < 0) {
+        throw new Error('Saldo insuficiente en la cuenta');
+      }
+    }
+
+    // Actualizamos el estado del gasto
+    const updateExpenseQuery = `
       UPDATE expenses 
       SET estado = $1 
       WHERE id = $2 
-      RETURNING *`;
+      RETURNING *
+    `;
+    const result = await client.query(updateExpenseQuery, [estado, id]);
 
-    const result = await client.query(query, [estado, id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        error: 'Gasto no encontrado'
-      });
-    }
+    await client.query('COMMIT');
 
     res.status(200).json({
       message: 'Estado del gasto actualizado exitosamente',
-      data: result.rows[0]
+      data: result.rows[0],
     });
-
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error en updateExpenseStatus:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
-      details: error.message
+      details: error.message,
     });
   } finally {
     client.release();
