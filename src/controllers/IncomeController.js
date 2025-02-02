@@ -1,10 +1,8 @@
 import pool from '../database.js';
 import { v4 as uuidv4 } from 'uuid';
-
+import { parse, format, isValid, lastDayOfMonth } from "date-fns";
+import { es } from "date-fns/locale";
 import xlsx from 'xlsx';
-
-
-
 
 // Endpoint para carga masiva
 export const bulkUploadIncomes = async (req, res) => {
@@ -37,13 +35,47 @@ export const bulkUploadIncomes = async (req, res) => {
 
     const newIncomes = [];
 
-    for (const row of rows) {
+    const processDate = (dateValue) => {
+      try {
+        let parsedDate;
 
+        if (typeof dateValue === "number") {
+          // Si la fecha viene en formato numérico de Excel
+          const excelStartDate = new Date(1900, 0, dateValue - 1);
+          parsedDate = excelStartDate;
+        } else if (typeof dateValue === "string") {
+          // Si la fecha ya está en formato texto
+          parsedDate = parse(dateValue, "dd/MM/yyyy", new Date());
+        } else {
+          throw new Error(`Formato de fecha no reconocido: ${dateValue}`);
+        }
+
+        // Verificar si la fecha es válida
+        if (!isValid(parsedDate)) {
+          throw new Error(`Fecha inválida: ${dateValue}`);
+        }
+
+        // Convertir a formato "YYYY-MM-DD" para PostgreSQL
+        return format(parsedDate, "yyyy-MM-dd");
+      } catch (error) {
+        throw new Error(`Error en la conversión de fecha: ${dateValue} - ${error.message}`);
+      }
+    };
+
+    for (const row of rows) {
       const accountId = accountMap.get(row.account?.toLowerCase());
       const categoryId = categoryMap.get(row.category?.toLowerCase());
 
       if (!accountId || !categoryId) {
         throw new Error(`Cuenta o categoría no válidas en la fila: ${JSON.stringify(row)}`);
+      }
+
+      let formattedDate;
+
+      try {
+        formattedDate = processDate(row.date);  // Convertimos la fecha
+      } catch (error) {
+        throw new Error(`Error en la conversión de fecha en la fila: ${JSON.stringify(row)} - ${error.message}`);
       }
 
       newIncomes.push({
@@ -53,7 +85,7 @@ export const bulkUploadIncomes = async (req, res) => {
         category_id: categoryId,
         amount: parseFloat(row.amount),
         type: row.type || '',
-        date: row.date || new Date(),
+        date: formattedDate,  // Ahora en formato "YYYY-MM-DD"
         voucher: row.voucher || null,
         description: row.description || '',
         estado: row.estado || true,
@@ -61,7 +93,6 @@ export const bulkUploadIncomes = async (req, res) => {
         amountdiverse: parseFloat(row.amountdiverse) || 0,
       });
     }
-
     // Insertar en la base de datos
     const insertQuery = `
       INSERT INTO incomes (
