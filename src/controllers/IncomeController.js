@@ -16,10 +16,8 @@ export const getAllIncomes = async (req, res) => {
 
 export const createIncome = async (req, res) => {
   const client = await pool.connect();
-
   try {
     await client.query('BEGIN');
-
     const {
       user_id,
       account_id,
@@ -31,7 +29,14 @@ export const createIncome = async (req, res) => {
       description,
       estado,
       amountfev,
-      amountdiverse
+      amountdiverse,
+      cashier_name, // Nuevo campo
+      cashier_number, // Nuevo campo
+      other_income, // Nuevo campo
+      cash_received, // Nuevo campo
+      cashier_commission, // Nuevo campo
+      start_period, // Nuevo campo
+      end_period // Nuevo campo
     } = req.body;
 
     // Generar UUID para el ingreso
@@ -48,7 +53,6 @@ export const createIncome = async (req, res) => {
     // Verificar que la cuenta existe y obtener su balance actual
     const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
     const accountResult = await client.query(accountQuery, [account_id]);
-
     if (accountResult.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({
@@ -56,13 +60,11 @@ export const createIncome = async (req, res) => {
         details: 'La cuenta especificada no existe'
       });
     }
-
     const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
 
     // Obtener la categoría y verificar que sea de tipo 'income'
     const categoryQuery = 'SELECT name, type FROM categories WHERE id = $1';
     const categoryResult = await client.query(categoryQuery, [category_id]);
-
     if (categoryResult.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({
@@ -70,9 +72,7 @@ export const createIncome = async (req, res) => {
         details: 'La categoría especificada no existe'
       });
     }
-
     const { name: categoryName, type: categoryType } = categoryResult.rows[0];
-
     if (categoryType !== 'income') {
       await client.query('ROLLBACK');
       return res.status(400).json({
@@ -82,7 +82,6 @@ export const createIncome = async (req, res) => {
     }
 
     let finalAmount;
-
     // Validación según el tipo de categoría
     if (categoryName.toLowerCase() === 'arqueo') {
       if (amountfev === undefined || amountdiverse === undefined) {
@@ -92,7 +91,6 @@ export const createIncome = async (req, res) => {
           details: 'Para la categoría Arqueo, los campos amountfev y amountdiverse son obligatorios'
         });
       }
-
       if (typeof amountfev !== 'number' || typeof amountdiverse !== 'number') {
         await client.query('ROLLBACK');
         return res.status(400).json({
@@ -100,9 +98,7 @@ export const createIncome = async (req, res) => {
           details: 'Los montos FEV y Diverso deben ser números'
         });
       }
-
       finalAmount = amountfev + amountdiverse;
-
     } else if (categoryName.toLowerCase() === 'venta') {
       if (!amount) {
         await client.query('ROLLBACK');
@@ -111,7 +107,6 @@ export const createIncome = async (req, res) => {
           details: 'Para la categoría Venta, el campo amount es obligatorio'
         });
       }
-
       if (typeof amount !== 'number' || amount <= 0) {
         await client.query('ROLLBACK');
         return res.status(400).json({
@@ -119,7 +114,6 @@ export const createIncome = async (req, res) => {
           details: 'El monto debe ser un número positivo'
         });
       }
-
       finalAmount = amount;
     } else {
       await client.query('ROLLBACK');
@@ -143,7 +137,6 @@ export const createIncome = async (req, res) => {
         .join(',') + '}'
       : null;
 
-    
     const createIncomeQuery = `
       INSERT INTO incomes (
         id,
@@ -157,9 +150,16 @@ export const createIncome = async (req, res) => {
         description,
         estado,
         amountfev,
-        amountdiverse
+        amountdiverse,
+        cashier_name,
+        cashier_number,
+        other_income,
+        cash_received,
+        cashier_commission,
+        start_period,
+        end_period -- Nuevo campo
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8::text[], $9, $10, $11, $12) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::date, $19::date) 
       RETURNING *`;
 
     const values = [
@@ -174,36 +174,38 @@ export const createIncome = async (req, res) => {
       description || '',
       estado || false,
       categoryName.toLowerCase() === 'arqueo' ? amountfev : 0,
-      categoryName.toLowerCase() === 'arqueo' ? amountdiverse : 0
+      categoryName.toLowerCase() === 'arqueo' ? amountdiverse : 0,
+      cashier_name || null, // Nuevo campo
+      cashier_number || null, // Nuevo campo
+      other_income || null, // Nuevo campo
+      cash_received || null, // Nuevo campo
+      cashier_commission || null, // Nuevo campo
+      start_period || null, // Nuevo campo
+      end_period || null // Nuevo campo
     ];
 
     const result = await client.query(createIncomeQuery, values);
-
     await client.query('COMMIT');
 
     res.status(201).json({
       message: 'Ingreso creado exitosamente',
       data: result.rows[0]
     });
-
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error en createIncome:', error);
-
     if (error.code === '23505') {
       return res.status(409).json({
         error: 'Conflicto',
         details: 'Ya existe un registro con estos datos'
       });
     }
-
     if (error.code === '22007') {
       return res.status(400).json({
         error: 'Formato de fecha inválido',
         details: 'El formato de la fecha no es válido'
       });
     }
-
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message
@@ -212,7 +214,6 @@ export const createIncome = async (req, res) => {
     client.release();
   }
 };
-
 
 //---------------------------- OBTENER INGRESO POR ID------------------------------------//
 export const getIncomeById = async (req, res) => {
@@ -228,20 +229,11 @@ export const getIncomeById = async (req, res) => {
   }
 };
 //-------------------------UPDATE INCOME---------------------------------------//
+
 export const updateIncome = async (req, res) => {
   const client = await pool.connect();
-
   try {
     const { id } = req.params;
-
-    // Verificar si el ID es válido
-    if (!id) {
-      return res.status(400).json({
-        error: 'ID inválido',
-        details: 'Se requiere un ID válido para actualizar el ingreso',
-      });
-    }
-
     const {
       user_id,
       account_id,
@@ -249,7 +241,7 @@ export const updateIncome = async (req, res) => {
       amount,
       type,
       date,
-      voucher, // URLs de nuevas imágenes
+      voucher,
       description,
       recurrent,
       tax_type,
@@ -257,6 +249,13 @@ export const updateIncome = async (req, res) => {
       estado,
       amountfev,
       amountdiverse,
+      cashier_name, // Nuevo campo
+      cashier_number, // Nuevo campo
+      other_income, // Nuevo campo
+      cash_received, // Nuevo campo
+      cashier_commission, // Nuevo campo
+      start_period, // Nuevo campo
+      end_period // Nuevo campo
     } = req.body;
 
     // Validación de campos requeridos
@@ -273,29 +272,6 @@ export const updateIncome = async (req, res) => {
         error: 'Monto inválido',
         details: 'El monto debe ser un número positivo',
       });
-    }
-
-    // Validar que el ingreso existe antes de actualizarlo
-    const existingIncome = await client.query(
-      'SELECT * FROM incomes WHERE id = $1',
-      [id]
-    );
-
-    if (existingIncome.rows.length === 0) {
-      return res.status(404).json({
-        error: 'Ingreso no encontrado',
-        details: `No se encontró un ingreso con el ID: ${id}`,
-      });
-    }
-
-    // Manejo de eliminación de imágenes previas si cambió el campo `voucher`
-    const previousvoucher = existingIncome.rows[0].voucher;
-
-    if (previousvoucher && previousvoucher.trim() && voucher !== previousvoucher) {
-      const previousImages = previousvoucher.trim().split("\n");
-      // Aquí podrías implementar una función para eliminar imágenes del servidor/CDN
-      console.log("Eliminando imágenes previas:", previousImages);
-      // deleteImagesFromServer(previousImages); // Implementa esta función según tu almacenamiento
     }
 
     // Construir la consulta dinámicamente solo con los campos proporcionados
@@ -318,6 +294,13 @@ export const updateIncome = async (req, res) => {
       estado,
       amountfev,
       amountdiverse,
+      cashier_name, // Nuevo campo
+      cashier_number, // Nuevo campo
+      other_income, // Nuevo campo
+      cash_received, // Nuevo campo
+      cashier_commission, // Nuevo campo
+      start_period, // Nuevo campo
+      end_period // Nuevo campo
     };
 
     for (const [field, value] of Object.entries(fieldMappings)) {
@@ -350,28 +333,24 @@ export const updateIncome = async (req, res) => {
     }
   } catch (error) {
     console.error('Error en updateIncome:', error);
-
     if (error.code === '23505') {
       return res.status(409).json({
         error: 'Conflicto',
         details: 'Ya existe un registro con estos datos',
       });
     }
-
     if (error.code === '22007') {
       return res.status(400).json({
         error: 'Formato de fecha inválido',
         details: 'El formato de la fecha no es válido',
       });
     }
-
     if (error.code === '23503') {
       return res.status(400).json({
         error: 'Error de referencia',
         details: 'Una o más referencias (user_id, account_id, category_id) no existen',
       });
     }
-
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message,
@@ -592,7 +571,7 @@ export const manageVouchers = async (req, res) => {
   } finally {
     client.release();
   }
-};   
+};
 
 
 //-------OBTENER COMPROBANTES-------
