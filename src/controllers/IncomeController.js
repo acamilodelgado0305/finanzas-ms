@@ -1,5 +1,125 @@
 import pool from '../database.js';
 import { v4 as uuidv4 } from 'uuid';
+import { parse, format, isValid, lastDayOfMonth } from "date-fns";
+import { es } from "date-fns/locale";
+import xlsx from 'xlsx';
+
+// Endpoint para carga masiva
+export const bulkUploadIncomes = async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se subió ningún archivo' });
+    }
+
+    console.log("✅ Archivo recibido, procesando...");
+
+    // Leer el archivo Excel desde buffer
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = xlsx.utils.sheet_to_json(sheet);
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'El archivo está vacío' });
+    }
+
+    // Obtener cuentas y categorías de la base de datos
+    const accounts = await client.query('SELECT id, name FROM accounts');
+    const categories = await client.query('SELECT id, name FROM categories');
+
+    const accountMap = new Map(accounts.rows.map(a => [a.name.toLowerCase(), a.id]));
+    const categoryMap = new Map(categories.rows.map(c => [c.name.toLowerCase(), c.id]));
+
+    const newIncomes = [];
+
+    const processDate = (dateValue) => {
+      try {
+        let parsedDate;
+
+        if (typeof dateValue === "number") {
+          // Si la fecha viene en formato numérico de Excel
+          const excelStartDate = new Date(1900, 0, dateValue - 1);
+          parsedDate = excelStartDate;
+        } else if (typeof dateValue === "string") {
+          // Si la fecha ya está en formato texto
+          parsedDate = parse(dateValue, "dd/MM/yyyy", new Date());
+        } else {
+          throw new Error(`Formato de fecha no reconocido: ${dateValue}`);
+        }
+
+        // Verificar si la fecha es válida
+        if (!isValid(parsedDate)) {
+          throw new Error(`Fecha inválida: ${dateValue}`);
+        }
+
+        // Convertir a formato "YYYY-MM-DD" para PostgreSQL
+        return format(parsedDate, "yyyy-MM-dd");
+      } catch (error) {
+        throw new Error(`Error en la conversión de fecha: ${dateValue} - ${error.message}`);
+      }
+    };
+
+    for (const row of rows) {
+      const accountId = accountMap.get(row.account?.toLowerCase());
+      const categoryId = categoryMap.get(row.category?.toLowerCase());
+
+      if (!accountId || !categoryId) {
+        throw new Error(`Cuenta o categoría no válidas en la fila: ${JSON.stringify(row)}`);
+      }
+
+      let formattedDate;
+
+      try {
+        formattedDate = processDate(row.date);  // Convertimos la fecha
+      } catch (error) {
+        throw new Error(`Error en la conversión de fecha en la fila: ${JSON.stringify(row)} - ${error.message}`);
+      }
+
+      newIncomes.push({
+        id: uuidv4(),
+        user_id: row.user_id,
+        account_id: accountId,
+        category_id: categoryId,
+        amount: parseFloat(row.amount),
+        type: row.type || '',
+        date: formattedDate,  // Ahora en formato "YYYY-MM-DD"
+        voucher: row.voucher || null,
+        description: row.description || '',
+        estado: row.estado || true,
+        amountfev: parseFloat(row.amountfev) || 0,
+        amountdiverse: parseFloat(row.amountdiverse) || 0,
+      });
+    }
+    // Insertar en la base de datos
+    const insertQuery = `
+      INSERT INTO incomes (
+        id, user_id, account_id, category_id, amount, type, date, voucher, description, estado, amountfev, amountdiverse
+      ) VALUES 
+      ${newIncomes.map(
+      (_, i) =>
+        `($${i * 12 + 1}, $${i * 12 + 2}, $${i * 12 + 3}, $${i * 12 + 4}, $${i * 12 + 5}, $${i * 12 + 6}, $${i * 12 + 7}, $${i * 12 + 8}, $${i * 12 + 9}, $${i * 12 + 10}, $${i * 12 + 11}, $${i * 12 + 12})`
+    ).join(', ')}
+    `;
+
+    const insertValues = newIncomes.flatMap(income => Object.values(income));
+    await client.query(insertQuery, insertValues);
+
+    await client.query('COMMIT');
+    res.status(201).json({ message: 'Ingresos cargados exitosamente' });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({
+      error: 'Error al procesar la carga masiva',
+      details: error.message,
+    });
+  } finally {
+    client.release();
+  }
+};
 
 //--------------------------OBTENER TODOS LOS INGRESOS------------------------------//
 export const getAllIncomes = async (req, res) => {
@@ -571,6 +691,7 @@ export const manageVouchers = async (req, res) => {
   } finally {
     client.release();
   }
+};
 };
 
 
