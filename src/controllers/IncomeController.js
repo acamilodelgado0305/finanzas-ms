@@ -102,7 +102,7 @@ export const bulkUploadIncomes = async (req, res) => {
         amountfev: parseFloat(row.amountfev) || 0,
         amountdiverse: parseFloat(row.amountdiverse) || 0,
         cashier_name: row.cashier_name || null,
-        cashier_number: row.cashier_number || null,
+        arqueo_number: row.arqueo_number || null,
         other_income: row.other_income || null,
         cash_received: row.cash_received || null,
         cashier_commission: row.cashier_commission || null,
@@ -126,7 +126,7 @@ export const bulkUploadIncomes = async (req, res) => {
     const insertQuery = `
       INSERT INTO incomes (
         id, user_id, account_id, category_id, amount, type, date, voucher, description, estado, amountfev, amountdiverse,
-        cashier_name, cashier_number, other_income, cash_received, cashier_commission, start_period, end_period
+        cashier_name, arqueo_number, other_income, cash_received, cashier_commission, start_period, end_period
       ) VALUES 
       ${newIncomes.map(
       (_, i) =>
