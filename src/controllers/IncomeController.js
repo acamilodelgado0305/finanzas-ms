@@ -230,50 +230,8 @@ export const createIncome = async (req, res) => {
       });
     }
 
-    let finalAmount;
-    // Validación según el tipo de categoría
-    if (categoryName.toLowerCase() === 'arqueo') {
-      if (amountfev === undefined || amountdiverse === undefined) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          error: 'Campos requeridos faltantes',
-          details: 'Para la categoría Arqueo, los campos amountfev y amountdiverse son obligatorios'
-        });
-      }
-      if (typeof amountfev !== 'number' || typeof amountdiverse !== 'number') {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          error: 'Montos inválidos',
-          details: 'Los montos FEV y Diverso deben ser números'
-        });
-      }
-      finalAmount = amountfev + amountdiverse;
-    } else if (categoryName.toLowerCase() === 'venta') {
-      if (!amount) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          error: 'Campo requerido faltante',
-          details: 'Para la categoría Venta, el campo amount es obligatorio'
-        });
-      }
-      if (typeof amount !== 'number' || amount <= 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          error: 'Monto inválido',
-          details: 'El monto debe ser un número positivo'
-        });
-      }
-      finalAmount = amount;
-    } else {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'Categoría no válida',
-        details: 'La categoría debe ser Arqueo o Venta'
-      });
-    }
-
     // Actualizar el balance de la cuenta
-    const newBalance = currentBalance + finalAmount;
+    const newBalance = currentBalance + amount;
     const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
     await client.query(updateAccountQuery, [newBalance, account_id]);
 
@@ -316,7 +274,7 @@ export const createIncome = async (req, res) => {
       user_id,
       account_id,
       category_id,
-      finalAmount,
+      amount,
       type || '',
       date,
       processedVoucher,
