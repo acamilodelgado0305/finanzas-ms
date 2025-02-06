@@ -151,7 +151,7 @@ export const createIncome = async (req, res) => {
       amountfev,
       amountdiverse,
       cashier_name, // Nuevo campo
-      cashier_number, // Nuevo campo
+      arqueo_number, // Nuevo campo
       other_income, // Nuevo campo
       cash_received, // Nuevo campo
       cashier_commission, // Nuevo campo
@@ -272,7 +272,7 @@ export const createIncome = async (req, res) => {
         amountfev,
         amountdiverse,
         cashier_name,
-        cashier_number,
+        arqueo_number,
         other_income,
         cash_received,
         cashier_commission,
@@ -296,7 +296,7 @@ export const createIncome = async (req, res) => {
       categoryName.toLowerCase() === 'arqueo' ? amountfev : 0,
       categoryName.toLowerCase() === 'arqueo' ? amountdiverse : 0,
       cashier_name || null, // Nuevo campo
-      cashier_number || null, // Nuevo campo
+      arqueo_number || null, // Nuevo campo
       other_income || null, // Nuevo campo
       cash_received || null, // Nuevo campo
       cashier_commission || null, // Nuevo campo
@@ -370,7 +370,7 @@ export const updateIncome = async (req, res) => {
       amountfev,
       amountdiverse,
       cashier_name, // Nuevo campo
-      cashier_number, // Nuevo campo
+      arqueo_number, // Nuevo campo
       other_income, // Nuevo campo
       cash_received, // Nuevo campo
       cashier_commission, // Nuevo campo
@@ -415,7 +415,7 @@ export const updateIncome = async (req, res) => {
       amountfev,
       amountdiverse,
       cashier_name, // Nuevo campo
-      cashier_number, // Nuevo campo
+      arqueo_number, // Nuevo campo
       other_income, // Nuevo campo
       cash_received, // Nuevo campo
       cashier_commission, // Nuevo campo
@@ -691,7 +691,6 @@ export const manageVouchers = async (req, res) => {
   } finally {
     client.release();
   }
-};
 };
 
 
