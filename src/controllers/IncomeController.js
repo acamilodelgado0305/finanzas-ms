@@ -17,7 +17,7 @@ export const bulkUploadIncomes = async (req, res) => {
 
     console.log("✅ Archivo recibido, procesando...");
 
-    // Leer el archivo Excel desde buffer
+    // Leer el archivo Excel desde el buffer
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = xlsx.utils.sheet_to_json(sheet);
@@ -27,8 +27,8 @@ export const bulkUploadIncomes = async (req, res) => {
     }
 
     // Obtener cuentas y categorías de la base de datos
-    const accounts = await client.query('SELECT id, name FROM accounts');
-    const categories = await client.query('SELECT id, name FROM categories');
+    const accounts = await client.query('SELECT id, name, balance FROM accounts');
+    const categories = await client.query('SELECT id, name, type FROM categories');
 
     const accountMap = new Map(accounts.rows.map(a => [a.name.toLowerCase(), a.id]));
     const categoryMap = new Map(categories.rows.map(c => [c.name.toLowerCase(), c.id]));
@@ -41,7 +41,7 @@ export const bulkUploadIncomes = async (req, res) => {
 
         if (typeof dateValue === "number") {
           // Si la fecha viene en formato numérico de Excel
-          const excelStartDate = new Date(1900, 0, dateValue - 1);
+          const excelStartDate = new Date(1900, 0, dateValue - 1);  // Excel empieza desde el 1 de enero de 1900
           parsedDate = excelStartDate;
         } else if (typeof dateValue === "string") {
           // Si la fecha ya está en formato texto
@@ -62,6 +62,7 @@ export const bulkUploadIncomes = async (req, res) => {
       }
     };
 
+
     for (const row of rows) {
       const accountId = accountMap.get(row.account?.toLowerCase());
       const categoryId = categoryMap.get(row.category?.toLowerCase());
@@ -71,38 +72,66 @@ export const bulkUploadIncomes = async (req, res) => {
       }
 
       let formattedDate;
+      let formattedStartPeriod;
+      let formattedEndPeriod;
 
       try {
-        formattedDate = processDate(row.date);  // Convertimos la fecha
+        // Procesar la fecha
+        formattedDate = processDate(row.date); // Procesa la fecha principal
+
+        // Procesar las fechas adicionales
+        formattedStartPeriod = row.start_period ? processDate(row.start_period) : null;
+        formattedEndPeriod = row.end_period ? processDate(row.end_period) : null;
+
       } catch (error) {
         throw new Error(`Error en la conversión de fecha en la fila: ${JSON.stringify(row)} - ${error.message}`);
       }
 
-      newIncomes.push({
+      // Agregar los nuevos campos a los ingresos
+      const incomeData = {
         id: uuidv4(),
         user_id: row.user_id,
         account_id: accountId,
         category_id: categoryId,
         amount: parseFloat(row.amount),
         type: row.type || '',
-        date: formattedDate,  // Ahora en formato "YYYY-MM-DD"
+        date: formattedDate, // Ahora en formato "YYYY-MM-DD"
         voucher: row.voucher || null,
         description: row.description || '',
         estado: row.estado || true,
         amountfev: parseFloat(row.amountfev) || 0,
         amountdiverse: parseFloat(row.amountdiverse) || 0,
-      });
+        cashier_name: row.cashier_name || null,
+        cashier_number: row.cashier_number || null,
+        other_income: row.other_income || null,
+        cash_received: row.cash_received || null,
+        cashier_commission: row.cashier_commission || null,
+        start_period: formattedStartPeriod,
+        end_period: formattedEndPeriod,
+      };
+
+      newIncomes.push(incomeData);
+
+      // Actualización del balance de la cuenta después de cada ingreso
+      const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
+      const accountResult = await client.query(accountQuery, [accountId]);
+
+      const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
+      const newBalance = currentBalance + incomeData.amount; // Sumar el nuevo ingreso al balance actual
+
+      const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
+      await client.query(updateAccountQuery, [newBalance, accountId]);
     }
     // Insertar en la base de datos
     const insertQuery = `
       INSERT INTO incomes (
-        id, user_id, account_id, category_id, amount, type, date, voucher, description, estado, amountfev, amountdiverse
+        id, user_id, account_id, category_id, amount, type, date, voucher, description, estado, amountfev, amountdiverse,
+        cashier_name, cashier_number, other_income, cash_received, cashier_commission, start_period, end_period
       ) VALUES 
       ${newIncomes.map(
       (_, i) =>
-        `($${i * 12 + 1}, $${i * 12 + 2}, $${i * 12 + 3}, $${i * 12 + 4}, $${i * 12 + 5}, $${i * 12 + 6}, $${i * 12 + 7}, $${i * 12 + 8}, $${i * 12 + 9}, $${i * 12 + 10}, $${i * 12 + 11}, $${i * 12 + 12})`
-    ).join(', ')}
-    `;
+        `($${i * 19 + 1}, $${i * 19 + 2}, $${i * 19 + 3}, $${i * 19 + 4}, $${i * 19 + 5}, $${i * 19 + 6}, $${i * 19 + 7}, $${i * 19 + 8}, $${i * 19 + 9}, $${i * 19 + 10}, $${i * 19 + 11}, $${i * 19 + 12}, $${i * 19 + 13}, $${i * 19 + 14}, $${i * 19 + 15}, $${i * 19 + 16}, $${i * 19 + 17}, $${i * 19 + 18}, $${i * 19 + 19})`
+    ).join(', ')}`;
 
     const insertValues = newIncomes.flatMap(income => Object.values(income));
     await client.query(insertQuery, insertValues);
@@ -120,6 +149,7 @@ export const bulkUploadIncomes = async (req, res) => {
     client.release();
   }
 };
+
 
 //--------------------------OBTENER TODOS LOS INGRESOS------------------------------//
 export const getAllIncomes = async (req, res) => {
@@ -181,7 +211,6 @@ export const createIncome = async (req, res) => {
       });
     }
     const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
-
     // Obtener la categoría y verificar que sea de tipo 'income'
     const categoryQuery = 'SELECT name, type FROM categories WHERE id = $1';
     const categoryResult = await client.query(categoryQuery, [category_id]);
@@ -692,7 +721,7 @@ export const manageVouchers = async (req, res) => {
     client.release();
   }
 };
-};
+
 
 
 //-------OBTENER COMPROBANTES-------
