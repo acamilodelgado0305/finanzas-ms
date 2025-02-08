@@ -1,6 +1,10 @@
 import pool from '../database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { setTimeout } from "timers/promises";
+import xlsx from 'xlsx';
+import { parse, format, isValid, lastDayOfMonth } from "date-fns";
+
+
 // Obtener todos los gastos
 export const getAllExpenses = async (req, res) => {
   try {
@@ -10,6 +14,163 @@ export const getAllExpenses = async (req, res) => {
     res.status(500).json({ error: 'Error al obtener los gastos' });
   }
 };
+
+export const bulkUploadExpenses = async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se subió ningún archivo' });
+    }
+
+    console.log("✅ Archivo recibido, procesando...");
+
+    // Leer el archivo Excel desde el buffer
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = xlsx.utils.sheet_to_json(sheet);
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'El archivo está vacío' });
+    }
+
+    console.log("✅ Filas del archivo:", rows); // Log de las filas recibidas
+
+    // Obtener cuentas y categorías de la base de datos
+    const accounts = await client.query('SELECT id, name, balance FROM accounts');
+    const categories = await client.query('SELECT id, name, type FROM categories');
+
+    // Convertir las claves del mapa a minúsculas
+    const accountMap = new Map(accounts.rows.map(a => [a.name.toLowerCase(), a.id]));
+    const categoryMap = new Map(categories.rows.map(c => [c.name.toLowerCase(), c.id]));
+
+    console.log("✅ Mapeo de cuentas:", accountMap); // Log de cuentas mapeadas
+    console.log("✅ Mapeo de categorías:", categoryMap); // Log de categorías mapeadas
+
+    const newExpenses = [];
+
+    const processDate = (dateValue) => {
+      try {
+        let parsedDate;
+
+        if (typeof dateValue === "number") {
+          // Si la fecha viene en formato numérico de Excel
+          const excelStartDate = new Date(1900, 0, dateValue - 1);  // Excel empieza desde el 1 de enero de 1900
+          parsedDate = excelStartDate;
+        } else if (typeof dateValue === "string") {
+          // Si la fecha ya está en formato texto
+          parsedDate = parse(dateValue, "dd/MM/yyyy", new Date());
+        } else {
+          throw new Error(`Formato de fecha no reconocido: ${dateValue}`);
+        }
+
+        // Verificar si la fecha es válida
+        if (!isValid(parsedDate)) {
+          throw new Error(`Fecha inválida: ${dateValue}`);
+        }
+
+        // Convertir a formato "YYYY-MM-DD" para PostgreSQL
+        return format(parsedDate, "yyyy-MM-dd");
+      } catch (error) {
+        throw new Error(`Error en la conversión de fecha: ${dateValue} - ${error.message}`);
+      }
+    };
+
+    for (const row of rows) {
+      console.log("✅ Procesando fila:", row); // Log de la fila que se está procesando
+
+      // Convertir account_id y category_id a minúsculas para la comparación
+      const accountId = accountMap.get(row.account_id?.toLowerCase());
+      const categoryId = categoryMap.get(row.category_id?.toLowerCase());
+
+      if (!accountId || !categoryId) {
+        throw new Error(`Cuenta o categoría no válidas en la fila: ${JSON.stringify(row)}`);
+      }
+
+      let formattedDate;
+
+      try {
+        formattedDate = processDate(row.date); // Procesa la fecha principal
+      } catch (error) {
+        throw new Error(`Error en la conversión de fecha en la fila: ${JSON.stringify(row)} - ${error.message}`);
+      }
+
+      // Procesar voucher (si existe)
+      const processedVoucher = row.voucher
+        ? '{' + row.voucher.split('\n').filter(v => v.trim()).map(v => `"${v.replace(/"/g, '\\"')}"`).join(',') + '}'
+        : null;
+
+      // Solo los campos que necesitamos
+      const expenseData = {
+        id: uuidv4(),
+        user_id: row.user_id,
+        account_id: accountId,
+        category_id: categoryId,
+        base_amount: parseFloat(row.base_amount),
+        amount: parseFloat(row.amount),
+        type: row.type || '',
+        sub_type: row.sub_type || '',
+        date: formattedDate,
+        voucher: processedVoucher,
+        description: row.description || '',
+        recurrent: row.recurrent || false,
+        tax_type: row.tax_type || null,
+        tax_percentage: parseFloat(row.tax_percentage) || 0,
+        tax_amount: parseFloat(row.tax_amount) || 0,
+        retention_type: row.retention_type || null,
+        retention_percentage: parseFloat(row.retention_percentage) || 0,
+        retention_amount: parseFloat(row.retention_amount) || 0,
+        timerecurrent: row.timerecurrent || 0,
+        estado: row.estado || true,
+        provider_id: row.provider_id || null,
+      };
+
+      newExpenses.push(expenseData);
+
+      // Actualización del balance de la cuenta después de cada gasto
+      if (expenseData.estado) {
+        const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
+        const accountResult = await client.query(accountQuery, [accountId]);
+
+        const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
+        const newBalance = currentBalance - expenseData.amount; // Restar el nuevo gasto al balance actual
+
+        const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
+        await client.query(updateAccountQuery, [newBalance, accountId]);
+      }
+    }
+
+    // Insertar en la base de datos
+    const insertQuery = `
+      INSERT INTO expenses (
+        id, user_id, account_id, category_id, base_amount, amount, type, sub_type, date, voucher, description,
+        recurrent, tax_type, tax_percentage, tax_amount, retention_type, retention_percentage, retention_amount,
+        timerecurrent, estado, provider_id
+      ) VALUES 
+      ${newExpenses.map(
+      (_, i) =>
+        `($${i * 21 + 1}, $${i * 21 + 2}, $${i * 21 + 3}, $${i * 21 + 4}, $${i * 21 + 5}, $${i * 21 + 6}, $${i * 21 + 7}, $${i * 21 + 8}, $${i * 21 + 9}, $${i * 21 + 10}, $${i * 21 + 11}, $${i * 21 + 12}, $${i * 21 + 13}, $${i * 21 + 14}, $${i * 21 + 15}, $${i * 21 + 16}, $${i * 21 + 17}, $${i * 21 + 18}, $${i * 21 + 19}, $${i * 21 + 20}, $${i * 21 + 21})`
+    ).join(', ')}`;
+
+    const insertValues = newExpenses.flatMap(expense => Object.values(expense));
+    await client.query(insertQuery, insertValues);
+
+    await client.query('COMMIT');
+    res.status(201).json({ message: 'Egresos cargados exitosamente' });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({
+      error: 'Error al procesar la carga masiva',
+      details: error.message,
+    });
+  } finally {
+    client.release();
+  }
+};
+
 
 //---------------------------------------CREAR UN NUEVO GASTO-------------------------------//
 export const createExpense = async (req, res) => {
@@ -81,10 +242,10 @@ export const createExpense = async (req, res) => {
       GROUP BY date_trunc('month', date)`;
 
     const existingMonths = await client.query(checkExistingQuery, [
-      user_id, 
-      account_id, 
-      category_id, 
-      amount, 
+      user_id,
+      account_id,
+      category_id,
+      amount,
       date
     ]);
 
@@ -105,7 +266,7 @@ export const createExpense = async (req, res) => {
 
     const results = [];
     const baseDate = new Date(date);
-    
+
     // Crear gastos solo para los meses que no existan
     for (let i = 0; i < timerecurrent; i++) {
       const currentDate = new Date(baseDate);
@@ -115,7 +276,7 @@ export const createExpense = async (req, res) => {
       // Solo crear si no existe un gasto para este mes
       if (!existingMonthsSet.has(monthKey)) {
         const currentEstado = i === 0 ? estado : false;
-        
+
         // Solo actualizar la cuenta si es el primer gasto y estado es true
         if (i === 0 && currentEstado && !estado) {
           const updateAccountQuery = `
