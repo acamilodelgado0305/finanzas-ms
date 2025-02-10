@@ -180,13 +180,14 @@ export const createIncome = async (req, res) => {
       estado,
       amountfev,
       amountdiverse,
-      cashier_name, // Nuevo campo
-      arqueo_number, // Nuevo campo
-      other_income, // Nuevo campo
-      cash_received, // Nuevo campo
-      cashier_commission, // Nuevo campo
-      start_period, // Nuevo campo
-      end_period // Nuevo campo
+      cashier_name,
+      arqueo_number,
+      other_income,
+      cash_received,
+      cashier_commission,
+      start_period,
+      end_period,
+      comentarios // Nuevo campo
     } = req.body;
 
     // Generar UUID para el ingreso
@@ -211,6 +212,7 @@ export const createIncome = async (req, res) => {
       });
     }
     const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
+
     // Obtener la categoría y verificar que sea de tipo 'income'
     const categoryQuery = 'SELECT name, type FROM categories WHERE id = $1';
     const categoryResult = await client.query(categoryQuery, [category_id]);
@@ -235,14 +237,7 @@ export const createIncome = async (req, res) => {
     const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
     await client.query(updateAccountQuery, [newBalance, account_id]);
 
-    // Procesar los vouchers: convertir string con \n a array formato PostgreSQL
-    const processedVoucher = voucher
-      ? '{' + voucher
-        .split('\n')
-        .filter(v => v.trim())
-        .map(v => `"${v.replace(/"/g, '\\"')}"`)
-        .join(',') + '}'
-      : null;
+    // Ya no necesitamos procesar los vouchers ya que vendrán como array
 
     const createIncomeQuery = `
       INSERT INTO incomes (
@@ -264,9 +259,10 @@ export const createIncome = async (req, res) => {
         cash_received,
         cashier_commission,
         start_period,
-        end_period -- Nuevo campo
+        end_period,
+        comentarios
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::date, $19::date) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::date, $19::date, $20) 
       RETURNING *`;
 
     const values = [
@@ -277,18 +273,19 @@ export const createIncome = async (req, res) => {
       amount,
       type || '',
       date,
-      processedVoucher,
+      voucher || [], // Ahora esperamos un array directamente
       description || '',
       estado || false,
       categoryName.toLowerCase() === 'arqueo' ? amountfev : 0,
       categoryName.toLowerCase() === 'arqueo' ? amountdiverse : 0,
-      cashier_name || null, // Nuevo campo
-      arqueo_number || null, // Nuevo campo
-      other_income || null, // Nuevo campo
-      cash_received || null, // Nuevo campo
-      cashier_commission || null, // Nuevo campo
-      start_period || null, // Nuevo campo
-      end_period || null // Nuevo campo
+      cashier_name || null,
+      arqueo_number || null,
+      other_income || null,
+      cash_received || null,
+      cashier_commission || null,
+      start_period || null,
+      end_period || null,
+      comentarios || null // Nuevo campo
     ];
 
     const result = await client.query(createIncomeQuery, values);
