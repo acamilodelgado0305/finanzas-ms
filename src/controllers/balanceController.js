@@ -46,7 +46,7 @@ export const getGeneralBalance = async (req, res) => {
 // Backend: controlador para obtener los balances mensuales
 export const getMonthlyBalance = async (req, res) => {
   const { monthYear } = req.params;
-  console.log('Parámetro recibido:', monthYear);
+  console.log('Parámetro recibido en getMonthlyBalance:', monthYear);
 
   if (!monthYear || !monthYear.includes('-')) {
     return res.status(400).json({ error: 'Formato de fecha incorrecto, use YYYY-MM' });
@@ -54,26 +54,28 @@ export const getMonthlyBalance = async (req, res) => {
 
   const client = await pool.connect();
   try {
-    const [year, month] = monthYear.split('-');
+    const [year, month] = monthYear.split('-').map(Number);
     console.log('Año:', year, 'Mes:', month);
 
     if (isNaN(year) || isNaN(month)) {
       return res.status(400).json({ error: 'Año o mes no son números válidos' });
     }
 
+    // Obtener ingresos mensuales
     const totalIncomesQuery = `
       SELECT COALESCE(SUM(amount), 0) as total_incomes
       FROM incomes
       WHERE estado = true AND EXTRACT(YEAR FROM date) = $1 AND EXTRACT(MONTH FROM date) = $2
     `;
-    const incomesResult = await client.query(totalIncomesQuery, [parseInt(year), parseInt(month)]);
+    const incomesResult = await client.query(totalIncomesQuery, [year, month]);
 
+    // Obtener gastos mensuales
     const totalExpensesQuery = `
       SELECT COALESCE(SUM(amount), 0) as total_expenses
       FROM expenses
       WHERE estado = true AND EXTRACT(YEAR FROM date) = $1 AND EXTRACT(MONTH FROM date) = $2
     `;
-    const expensesResult = await client.query(totalExpensesQuery, [parseInt(year), parseInt(month)]);
+    const expensesResult = await client.query(totalExpensesQuery, [year, month]);
 
     const totalIncomes = incomesResult.rows[0].total_incomes || 0;
     const totalExpenses = expensesResult.rows[0].total_expenses || 0;
@@ -97,4 +99,3 @@ export const getMonthlyBalance = async (req, res) => {
     client.release();
   }
 };
-

@@ -9,7 +9,7 @@ const router = express.Router();
 router.get("/balance/general", getGeneralBalance);
 
 
-router.get('/transactions/balance/month/:monthYear', getMonthlyBalance);
+router.get('/balance/month/:monthYear', getMonthlyBalance);
 
 
 export default router;
