@@ -180,27 +180,25 @@ export const createIncome = async (req, res) => {
       estado,
       amountfev,
       amountdiverse,
-      cashier_name, // Nuevo campo
-      arqueo_number, // Nuevo campo
-      other_income, // Nuevo campo
-      cash_received, // Nuevo campo
-      cashier_commission, // Nuevo campo
-      start_period, // Nuevo campo
-      end_period // Nuevo campo
+      cashier_name,
+      arqueo_number,
+      other_income,
+      cash_received,
+      cashier_commission,
+      start_period,
+      end_period,
+      comentarios
     } = req.body;
 
-    // Generar UUID para el ingreso
-    const id = uuidv4();
-
-    // Validación de campos requeridos básicos
-    if (!user_id || !account_id || !category_id || !date) {
+    // Validación básica
+    if (!user_id || !account_id || !date) {
       return res.status(400).json({
         error: 'Campos requeridos faltantes',
-        details: 'Los campos user_id, account_id, category_id y date son obligatorios'
+        details: 'Los campos user_id, account_id y date son obligatorios'
       });
     }
 
-    // Verificar que la cuenta existe y obtener su balance actual
+    // Verificar que la cuenta existe
     const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
     const accountResult = await client.query(accountQuery, [account_id]);
     if (accountResult.rows.length === 0) {
@@ -210,24 +208,24 @@ export const createIncome = async (req, res) => {
         details: 'La cuenta especificada no existe'
       });
     }
+
     const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
-    // Obtener la categoría y verificar que sea de tipo 'income'
-    const categoryQuery = 'SELECT name, type FROM categories WHERE id = $1';
-    const categoryResult = await client.query(categoryQuery, [category_id]);
-    if (categoryResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'Categoría inválida',
-        details: 'La categoría especificada no existe'
-      });
-    }
-    const { name: categoryName, type: categoryType } = categoryResult.rows[0];
-    if (categoryType !== 'income') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'Categoría no válida',
-        details: 'La categoría debe ser de tipo income'
-      });
+
+    // Validar categoría solo si fue proporcionada
+    let categoryName = null;
+    let categoryType = null;
+    if (category_id) {
+      const categoryQuery = 'SELECT name, type FROM categories WHERE id = $1';
+      const categoryResult = await client.query(categoryQuery, [category_id]);
+      if (categoryResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'Categoría inválida',
+          details: 'La categoría especificada no existe'
+        });
+      }
+      categoryName = categoryResult.rows[0].name;
+      categoryType = categoryResult.rows[0].type;
     }
 
     // Actualizar el balance de la cuenta
@@ -235,15 +233,34 @@ export const createIncome = async (req, res) => {
     const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
     await client.query(updateAccountQuery, [newBalance, account_id]);
 
-    // Procesar los vouchers: convertir string con \n a array formato PostgreSQL
-    const processedVoucher = voucher
-      ? '{' + voucher
-        .split('\n')
-        .filter(v => v.trim())
-        .map(v => `"${v.replace(/"/g, '\\"')}"`)
-        .join(',') + '}'
-      : null;
+    // Procesar el campo voucher
+    let parsedVoucher = [];
+    if (typeof voucher === 'string') {
+      try {
+        parsedVoucher = JSON.parse(voucher);
+      } catch (e) {
+        return res.status(400).json({
+          error: 'Formato de comprobantes inválido',
+          details: 'El campo voucher debe ser un arreglo válido'
+        });
+      }
+    } else if (Array.isArray(voucher)) {
+      parsedVoucher = voucher;
+    } else {
+      return res.status(400).json({
+        error: 'Formato de comprobantes inválido',
+        details: 'El campo voucher debe ser un arreglo'
+      });
+    }
 
+    if (!parsedVoucher.every(url => typeof url === 'string')) {
+      return res.status(400).json({
+        error: 'Formato de comprobantes inválido',
+        details: 'Todos los elementos del campo voucher deben ser URLs válidas'
+      });
+    }
+
+    // Insertar el ingreso en la base de datos
     const createIncomeQuery = `
       INSERT INTO incomes (
         id,
@@ -264,36 +281,38 @@ export const createIncome = async (req, res) => {
         cash_received,
         cashier_commission,
         start_period,
-        end_period -- Nuevo campo
+        end_period,
+        comentarios
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::date, $19::date) 
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7::timestamp, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::date, $19::date, $20
+      ) 
       RETURNING *`;
-
     const values = [
-      id,
+      uuidv4(),
       user_id,
       account_id,
-      category_id,
+      category_id || null,
       amount,
       type || '',
       date,
-      processedVoucher,
+      parsedVoucher,
       description || '',
       estado || false,
-      categoryName.toLowerCase() === 'arqueo' ? amountfev : 0,
-      categoryName.toLowerCase() === 'arqueo' ? amountdiverse : 0,
-      cashier_name || null, // Nuevo campo
-      arqueo_number || null, // Nuevo campo
-      other_income || null, // Nuevo campo
-      cash_received || null, // Nuevo campo
-      cashier_commission || null, // Nuevo campo
-      start_period || null, // Nuevo campo
-      end_period || null // Nuevo campo
+      amountfev || null,
+      amountdiverse || null,
+      cashier_name || null,
+      arqueo_number || null,
+      other_income || null,
+      cash_received || null,
+      cashier_commission || null,
+      start_period || null,
+      end_period || null,
+      comentarios || null
     ];
-
     const result = await client.query(createIncomeQuery, values);
-    await client.query('COMMIT');
 
+    await client.query('COMMIT');
     res.status(201).json({
       message: 'Ingreso creado exitosamente',
       data: result.rows[0]
@@ -321,7 +340,6 @@ export const createIncome = async (req, res) => {
     client.release();
   }
 };
-
 //---------------------------- OBTENER INGRESO POR ID------------------------------------//
 export const getIncomeById = async (req, res) => {
   const { id } = req.params;
@@ -366,10 +384,10 @@ export const updateIncome = async (req, res) => {
     } = req.body;
 
     // Validación de campos requeridos
-    if (!user_id || !account_id || !category_id || !amount || !date) {
+    if (!user_id || !account_id || !amount || !date) {
       return res.status(400).json({
         error: 'Campos requeridos faltantes',
-        details: 'Los campos user_id, account_id, category_id, amount y date son obligatorios',
+        details: 'Los campos user_id, account_id, amount y date son obligatorios',
       });
     }
 
