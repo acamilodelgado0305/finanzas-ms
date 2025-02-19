@@ -10,7 +10,7 @@ import incomesRoutes from './routes/incomes.js';
 import expensesRoutes from './routes/expenses.js';
 import providerRoutes from './routes/Providers.js';
 import balanceRoutes from './routes/balanceRoutes.js'
-
+import accountingAccountsRoutes from './routes/accounting_accountsRoutes.js'
 
 const app = express();
 import dotenv from "dotenv";
@@ -45,7 +45,7 @@ app.use("/api", incomesRoutes);
 app.use("/api", expensesRoutes);
 app.use("/api", providerRoutes);
 app.use("/api", balanceRoutes);
-
+app.use("/api", accountingAccountsRoutes);
 
 
 // Iniciar el servidor
