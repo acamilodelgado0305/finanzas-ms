@@ -9,9 +9,19 @@ export const createAccountingAccount = async (req, res) => {
         return res.status(400).json({ error: 'Código y nombre son requeridos' });
     }
 
-    const id = uuidv4(); // Generamos un UUID para la cuenta contable
+    const id = uuidv4();
 
     try {
+        // Verificar si el código ya existe en la base de datos
+        const checkCodeExistence = await pool.query(
+            'SELECT * FROM accounting_accounts WHERE code = $1',
+            [code]
+        );
+
+        if (checkCodeExistence.rows.length > 0) {
+            return res.status(400).json({ error: 'El código de cuenta contable ya existe' });
+        }
+
         // Insertar en la base de datos con el ID generado
         const result = await pool.query(
             'INSERT INTO accounting_accounts (id, code, name) VALUES ($1, $2, $3) RETURNING *',
