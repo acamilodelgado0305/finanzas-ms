@@ -15,7 +15,7 @@ export const getGeneralBalance = async (req, res) => {
     
     // Obtener el total de gastos
     const totalExpensesQuery = `
-      SELECT COALESCE(SUM(amount), 0) as total_expenses
+      SELECT COALESCE(SUM(total_net), 0) as total_expenses
       FROM expenses
       WHERE estado = true`;
     
