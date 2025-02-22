@@ -5,23 +5,43 @@ export const getGeneralBalance = async (req, res) => {
   const client = await pool.connect();
 
   try {
+    // Verificar que la columna "amount" exista en la tabla "incomes"
+    const checkIncomesColumnQuery = `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'incomes' AND column_name = 'amount';
+    `;
+    // Verificar que la columna "total_net" exista en la tabla "expenses"
+    const checkExpensesColumnQuery = `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'expenses' AND column_name = 'total_net';
+    `;
+
+    const incomesColumnResult = await client.query(checkIncomesColumnQuery);
+    const expensesColumnResult = await client.query(checkExpensesColumnQuery);
+
+    if (incomesColumnResult.rows.length === 0 || expensesColumnResult.rows.length === 0) {
+      return res.status(400).json({
+        error: 'Las tablas no tienen las columnas necesarias ("amount" o "total_net")'
+      });
+    }
+
     // Obtener el total de ingresos
     const totalIncomesQuery = `
       SELECT COALESCE(SUM(amount), 0) as total_incomes
       FROM incomes
       WHERE estado = true`;
-
     const incomesResult = await client.query(totalIncomesQuery);
 
-    // Obtener el total de gastos
+    // Obtener el total de gastos, usando "total_net" en lugar de "amount"
     const totalExpensesQuery = `
-      SELECT COALESCE(SUM(amount), 0) as total_expenses
+      SELECT COALESCE(SUM(total_net), 0) as total_expenses
       FROM expenses
       WHERE estado = true`;
-
     const expensesResult = await client.query(totalExpensesQuery);
 
-    // Calcular el balance neto
+    // Si no hay ingresos ni gastos, el balance neto será 0
     const totalIncomes = incomesResult.rows[0].total_incomes || 0;
     const totalExpenses = expensesResult.rows[0].total_expenses || 0;
     const netBalance = totalIncomes - totalExpenses;
@@ -61,6 +81,28 @@ export const getMonthlyBalance = async (req, res) => {
       return res.status(400).json({ error: 'Año o mes no son números válidos' });
     }
 
+    // Verificar que la columna "amount" exista en la tabla "incomes"
+    const checkIncomesColumnQuery = `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'incomes' AND column_name = 'amount';
+    `;
+    // Verificar que la columna "total_net" exista en la tabla "expenses"
+    const checkExpensesColumnQuery = `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'expenses' AND column_name = 'total_net';
+    `;
+
+    const incomesColumnResult = await client.query(checkIncomesColumnQuery);
+    const expensesColumnResult = await client.query(checkExpensesColumnQuery);
+
+    if (incomesColumnResult.rows.length === 0 || expensesColumnResult.rows.length === 0) {
+      return res.status(400).json({
+        error: 'Las tablas no tienen las columnas necesarias ("amount" o "total_net")'
+      });
+    }
+
     // Obtener ingresos mensuales
     const totalIncomesQuery = `
       SELECT COALESCE(SUM(amount), 0) as total_incomes
@@ -69,9 +111,9 @@ export const getMonthlyBalance = async (req, res) => {
     `;
     const incomesResult = await client.query(totalIncomesQuery, [year, month]);
 
-    // Obtener gastos mensuales
+    // Obtener gastos mensuales, usando "total_net" en lugar de "amount"
     const totalExpensesQuery = `
-      SELECT COALESCE(SUM(amount), 0) as total_expenses
+      SELECT COALESCE(SUM(total_net), 0) as total_expenses
       FROM expenses
       WHERE estado = true AND EXTRACT(YEAR FROM date) = $1 AND EXTRACT(MONTH FROM date) = $2
     `;
