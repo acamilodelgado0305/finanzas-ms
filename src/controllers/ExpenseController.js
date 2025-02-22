@@ -4,17 +4,6 @@ import { setTimeout } from "timers/promises";
 import xlsx from 'xlsx';
 import { parse, format, isValid, lastDayOfMonth } from "date-fns";
 
-
-// Obtener todos los gastos
-export const getAllExpenses = async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM expenses');
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener los gastos' });
-  }
-};
-
 export const bulkUploadExpenses = async (req, res) => {
   const client = await pool.connect();
 
@@ -170,6 +159,17 @@ export const bulkUploadExpenses = async (req, res) => {
     client.release();
   }
 };
+// Obtener todos los gastos
+export const getAllExpenses = async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM expenses');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener los gastos' });
+  }
+};
+
+
 
 
 //---------------------------------------CREAR UN NUEVO GASTO-------------------------------//
@@ -182,161 +182,129 @@ export const createExpense = async (req, res) => {
     const {
       user_id,
       account_id,
-      category_id,
-      base_amount,
-      amount,
-      type,
-      sub_type,
+      tipo,
       date,
-      voucher,
+      proveedor,
       description,
-      recurrent = false,
-      tax_type = null,
-      timerecurrent = null,
-      estado = true,
-      provider_id = null,
-      tax_percentage = null,
-      tax_amount = null,
-      retention_type = null,
-      retention_percentage = null,
-      retention_amount = null,
+      estado,
+      expense_items,
+      expense_totals,
+      facturaNumber,
+      facturaProvNumber,
+      comentarios,
+      voucher
     } = req.body;
 
+    // Procesar el voucher si existe
     const processedVoucher = voucher
-      ? '{' + voucher
-        .split('\n')
-        .filter(v => v.trim())
+      ? '{' + JSON.parse(voucher)
         .map(v => `"${v.replace(/"/g, '\\"')}"`)
         .join(',') + '}'
       : null;
 
-    // Solo actualizamos el balance de la cuenta si estado es true
-    if (estado) {
-      const updateAccountQuery = `
+    // Verificar y actualizar el balance de la cuenta si estado es true
+
+    const updateAccountQuery = `
         UPDATE accounts 
         SET balance = balance - $1 
         WHERE id = $2 
         RETURNING balance`;
 
-      const accountResult = await client.query(updateAccountQuery, [amount, account_id]);
-
-      if (accountResult.rows.length === 0) {
-        throw new Error('Cuenta no encontrada');
-      }
-
-      if (accountResult.rows[0].balance < 0) {
-        throw new Error('Saldo insuficiente en la cuenta');
-      }
-    }
-
-    // Primero verificamos si ya existen gastos para los meses que vamos a crear
-    const checkExistingQuery = `
-      SELECT date_trunc('month', date) as month
-      FROM expenses 
-      WHERE user_id = $1 
-        AND account_id = $2 
-        AND category_id = $3
-        AND amount = $4
-        AND date >= date_trunc('month', $5::timestamp)
-        AND date < date_trunc('month', $5::timestamp) + interval '${timerecurrent} months'
-      GROUP BY date_trunc('month', date)`;
-
-    const existingMonths = await client.query(checkExistingQuery, [
-      user_id,
-      account_id,
-      category_id,
-      amount,
-      date
+    const accountResult = await client.query(updateAccountQuery, [
+      expense_totals.total_neto,
+      account_id
     ]);
 
-    const existingMonthsSet = new Set(
-      existingMonths.rows.map(row => row.month.toISOString().slice(0, 7))
-    );
+    if (accountResult.rows.length === 0) {
+      throw new Error('Cuenta no encontrada');
+    }
 
-    const insertQuery = `
+    if (accountResult.rows[0].balance < 0) {
+      throw new Error('Saldo insuficiente en la cuenta');
+    }
+
+
+    // Insertar el gasto principal
+    const insertExpenseQuery = `
       INSERT INTO expenses (
-        id, user_id, account_id, category_id, base_amount, amount, 
-        type, sub_type, date, voucher, description, recurrent, tax_type,
-        tax_percentage, tax_amount, retention_type, retention_percentage,
-        retention_amount, timerecurrent, estado, provider_id
+        id, user_id, account_id, date, provider_id, description,
+        estado, invoice_number, provider_invoice_number, comments,
+        voucher, type, total_gross, discounts, subtotal,
+        ret_vat, ret_vat_percentage, ret_ica, ret_ica_percentage,
+        total_net
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamp, $10::text[], $11, $12, 
-              $13, $14, $15, $16, $17, $18, $19, $20, $21) 
+      VALUES ($1, $2, $3, $4::timestamp, $5, $6, $7, $8, $9, $10, 
+              $11::text[], $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING *`;
 
-    const results = [];
-    const baseDate = new Date(date);
+    const expenseValues = [
+      uuidv4(),
+      user_id,
+      account_id,
+      date,
+      proveedor,
+      description,
+      estado,
+      facturaNumber,
+      facturaProvNumber,
+      comentarios,
+      processedVoucher,
+      tipo,
+      expense_totals.total_bruto,
+      expense_totals.descuentos,
+      expense_totals.subtotal,
+      expense_totals.rete_iva,
+      expense_totals.rete_iva_percentage,
+      expense_totals.rete_ica,
+      expense_totals.rete_ica_percentage,
+      expense_totals.total_neto
+    ];
 
-    // Crear gastos solo para los meses que no existan
-    for (let i = 0; i < timerecurrent; i++) {
-      const currentDate = new Date(baseDate);
-      currentDate.setMonth(baseDate.getMonth() + i);
-      const monthKey = currentDate.toISOString().slice(0, 7);
+    const expenseResult = await client.query(insertExpenseQuery, expenseValues);
+    const expense = expenseResult.rows[0];
 
-      // Solo crear si no existe un gasto para este mes
-      if (!existingMonthsSet.has(monthKey)) {
-        const currentEstado = i === 0 ? estado : false;
+    // Insertar los items del gasto
+    const insertItemQuery = `
+      INSERT INTO expense_items (
+        id, expense_id, type, product_name, description,
+        quantity, unit_price, discount, total
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *`;
 
-        // Solo actualizar la cuenta si es el primer gasto y estado es true
-        if (i === 0 && currentEstado && !estado) {
-          const updateAccountQuery = `
-            UPDATE accounts 
-            SET balance = balance - $1 
-            WHERE id = $2 
-            RETURNING balance`;
+    const itemResults = [];
+    for (const item of expense_items) {
+      const itemValues = [
+        uuidv4(),
+        expense.id,
+        item.type,
+        item.product,
+        item.description,
+        item.quantity,
+        item.unit_price,
+        item.discount,
+        (item.quantity * item.unit_price) - (item.discount || 0)
+      ];
 
-          const accountResult = await client.query(updateAccountQuery, [amount, account_id]);
-
-          if (accountResult.rows.length === 0) {
-            throw new Error('Cuenta no encontrada');
-          }
-
-          if (accountResult.rows[0].balance < 0) {
-            throw new Error('Saldo insuficiente en la cuenta');
-          }
-        }
-
-        const values = [
-          uuidv4(),
-          user_id,
-          account_id,
-          category_id,
-          base_amount,
-          amount,
-          type || '',
-          sub_type || '',
-          currentDate.toISOString(),
-          processedVoucher,
-          description || '',
-          recurrent,
-          tax_type,
-          tax_percentage,
-          tax_amount,
-          retention_type,
-          retention_percentage,
-          retention_amount,
-          timerecurrent,
-          currentEstado,
-          provider_id,
-        ];
-
-        const result = await client.query(insertQuery, values);
-        results.push(result.rows[0]);
-      }
+      const itemResult = await client.query(insertItemQuery, itemValues);
+      itemResults.push(itemResult.rows[0]);
     }
 
     await client.query('COMMIT');
 
     res.status(201).json({
-      message: `${results.length} gastos ${recurrent ? 'recurrentes ' : ''}creados exitosamente`,
-      data: results,
+      message: 'Gasto creado exitosamente',
+      data: {
+        ...expense,
+        items: itemResults
+      }
     });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error en createExpense:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
-      details: error.message,
+      details: error.message
     });
   } finally {
     client.release();
@@ -367,43 +335,21 @@ export const updateExpense = async (req, res) => {
     const {
       user_id,
       account_id,
-      category_id,
-      base_amount,
-      amount,
-      type,
+      tipo,
       date,
-      voucher,
+      proveedor,
       description,
-      recurrent,
-      tax_type,
-      tax_percentage,
-      tax_amount,
-      retention_type,
-      retention_percentage,
-      retention_amount,
-      timerecurrent,
       estado,
-      provider_id
+      expense_items,
+      expense_totals,
+      facturaNumber,
+      facturaProvNumber,
+      comentarios,
+      voucher
     } = req.body;
 
-    // Validate required fields
-    if (!user_id || !account_id || !category_id || !base_amount || !amount || !date) {
-      return res.status(400).json({
-        error: 'Campos requeridos faltantes',
-        details: 'Los campos user_id, account_id, category_id, base_amount, amount y date son obligatorios'
-      });
-    }
-
-    // Validate amounts
-    if (typeof base_amount !== 'number' || base_amount <= 0 || typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({
-        error: 'Montos inválidos',
-        details: 'Los montos base y total deben ser números positivos'
-      });
-    }
-
-    // Get the current expense details
-    const currentExpenseQuery = 'SELECT amount, account_id FROM expenses WHERE id = $1';
+    // Obtener el gasto actual
+    const currentExpenseQuery = 'SELECT total_net, account_id FROM expenses WHERE id = $1';
     const currentExpense = await client.query(currentExpenseQuery, [id]);
 
     if (currentExpense.rows.length === 0) {
@@ -414,21 +360,28 @@ export const updateExpense = async (req, res) => {
       });
     }
 
-    const oldAmount = currentExpense.rows[0].amount;
+    const oldAmount = currentExpense.rows[0].total_net;
     const oldAccountId = currentExpense.rows[0].account_id;
 
-    // If the account is being changed, update both old and new account balances
+    // Procesar el voucher si existe
+    const processedVoucher = voucher
+      ? '{' + JSON.parse(voucher)
+        .map(v => `"${v.replace(/"/g, '\\"')}"`)
+        .join(',') + '}'
+      : null;
+
+    // Si la cuenta cambió, actualizar ambas cuentas
     if (oldAccountId !== account_id) {
-      // Return amount to old account
+      // Devolver monto a la cuenta anterior
       await client.query(
         'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
         [oldAmount, oldAccountId]
       );
 
-      // Deduct from new account
+      // Descontar de la nueva cuenta
       const newAccountResult = await client.query(
         'UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING balance',
-        [amount, account_id]
+        [expense_totals.total_neto, account_id]
       );
 
       if (newAccountResult.rows[0].balance < 0) {
@@ -439,8 +392,8 @@ export const updateExpense = async (req, res) => {
         });
       }
     } else {
-      // Same account, just update the difference
-      const difference = amount - oldAmount;
+      // Misma cuenta, actualizar la diferencia
+      const difference = expense_totals.total_neto - oldAmount;
       const accountResult = await client.query(
         'UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING balance',
         [difference, account_id]
@@ -455,62 +408,96 @@ export const updateExpense = async (req, res) => {
       }
     }
 
-    // Update the expense
+    // Actualizar el gasto principal
     const updateExpenseQuery = `
       UPDATE expenses SET 
         user_id = $1,
         account_id = $2,
-        category_id = $3,
-        base_amount = $4,
-        amount = $5,
-        type = $6,
-        date = $7,
-        voucher = $8,
-        description = $9,
-        recurrent = $10,
-        tax_type = $11,
-        tax_percentage = $12,
-        tax_amount = $13,
-        retention_type = $14,
-        retention_percentage = $15,
-        retention_amount = $16,
-        timerecurrent = $17,
-        estado = $18,
-        provider_id = $19
+        date = $3,
+        provider_id = $4,
+        description = $5,
+        estado = $6,
+        invoice_number = $7,
+        provider_invoice_number = $8,
+        comments = $9,
+        voucher = $10,
+        type = $11,
+        total_gross = $12,
+        discounts = $13,
+        subtotal = $14,
+        ret_vat = $15,
+        ret_vat_percentage = $16,
+        ret_ica = $17,
+        ret_ica_percentage = $18,
+        total_net = $19
       WHERE id = $20
       RETURNING *`;
 
-    const result = await client.query(updateExpenseQuery, [
+    const expenseValues = [
       user_id,
       account_id,
-      category_id,
-      base_amount,
-      amount,
-      type,
       date,
-      voucher || '',
-      description || '',
-      recurrent,
-      tax_type,
-      tax_percentage,
-      tax_amount,
-      retention_type,
-      retention_percentage,
-      retention_amount,
-      timerecurrent,
+      proveedor,
+      description,
       estado,
-      provider_id || null,
+      facturaNumber,
+      facturaProvNumber,
+      comentarios,
+      processedVoucher,
+      tipo,
+      expense_totals.total_bruto,
+      expense_totals.descuentos,
+      expense_totals.subtotal,
+      expense_totals.rete_iva,
+      expense_totals.rete_iva_percentage,
+      expense_totals.rete_ica,
+      expense_totals.rete_ica_percentage,
+      expense_totals.total_neto,
       id
-    ]);
+    ];
+
+    const expenseResult = await client.query(updateExpenseQuery, expenseValues);
+    const expense = expenseResult.rows[0];
+
+    // Eliminar items antiguos
+    await client.query('DELETE FROM expense_items WHERE expense_id = $1', [id]);
+
+    // Insertar los nuevos items
+    const insertItemQuery = `
+      INSERT INTO expense_items (
+        id, expense_id, type, product_name, description,
+        quantity, unit_price, discount, total
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *`;
+
+    const itemResults = [];
+    for (const item of expense_items) {
+      const itemValues = [
+        uuidv4(),
+        expense.id,
+        item.type,
+        item.product,
+        item.description,
+        item.quantity,
+        item.unit_price,
+        item.discount || 0,
+        (item.quantity * item.unit_price) - (item.discount || 0)
+      ];
+
+      const itemResult = await client.query(insertItemQuery, itemValues);
+      itemResults.push(itemResult.rows[0]);
+    }
 
     await client.query('COMMIT');
 
     res.status(200).json({
-      status: 'success',
       message: 'Gasto actualizado exitosamente',
-      data: result.rows[0]
+      data: {
+        ...expense,
+        items: itemResults
+      }
     });
-
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error en updateExpense:', error);
