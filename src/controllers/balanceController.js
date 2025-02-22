@@ -66,8 +66,6 @@ export const getGeneralBalance = async (req, res) => {
 // Backend: controlador para obtener los balances mensuales
 export const getMonthlyBalance = async (req, res) => {
   const { monthYear } = req.params;
-  console.log('Parámetro recibido en getMonthlyBalance:', monthYear);
-
   if (!monthYear || !monthYear.includes('-')) {
     return res.status(400).json({ error: 'Formato de fecha incorrecto, use YYYY-MM' });
   }
@@ -75,7 +73,6 @@ export const getMonthlyBalance = async (req, res) => {
   const client = await pool.connect();
   try {
     const [year, month] = monthYear.split('-').map(Number);
-    console.log('Año:', year, 'Mes:', month);
 
     if (isNaN(year) || isNaN(month)) {
       return res.status(400).json({ error: 'Año o mes no son números válidos' });
@@ -122,8 +119,6 @@ export const getMonthlyBalance = async (req, res) => {
     const totalIncomes = incomesResult.rows[0].total_incomes || 0;
     const totalExpenses = expensesResult.rows[0].total_expenses || 0;
     const netBalance = totalIncomes - totalExpenses;
-
-    console.log('Balance mensual calculado:', { totalIncomes, totalExpenses, netBalance });
 
     res.json({
       total_incomes: totalIncomes,
