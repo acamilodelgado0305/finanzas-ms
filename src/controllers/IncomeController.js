@@ -3,6 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { parse, format, isValid, lastDayOfMonth } from "date-fns";
 import { es } from "date-fns/locale";
 import xlsx from 'xlsx';
+import {
+  createExpense,
+
+} from '../controllers/ExpenseController.js';
 
 // Endpoint para carga masiva
 export const bulkUploadIncomes = async (req, res) => {
@@ -317,6 +321,58 @@ export const createIncome = async (req, res) => {
       message: 'Ingreso creado exitosamente',
       data: result.rows[0]
     });
+
+
+    // Check if the income type is "arqueo" and if there's a cashier commission
+    if (type === 'arqueo' && cashier_commission > 0) {
+      try {
+        // Prepare the expense data based on the commission
+        const expenseData = {
+          user_id,
+          account_id,
+          tipo: 'commission', // Assuming there's a specific type for commission expenses
+          date,
+          proveedor: null, // You may need to specify a provider or leave it null
+          description: `Comisión de arqueo ${arqueo_number || ''}`,
+          estado: true,
+          expense_items: [
+            {
+              type: 'commission',
+              product: 'Comisión de Arqueo',
+              description: `Comisión de arqueo ${arqueo_number || ''}`,
+              quantity: 1,
+              unit_price: cashier_commission,
+              discount: 0
+            }
+          ],
+          expense_totals: {
+            total_bruto: cashier_commission,
+            descuentos: 0,
+            subtotal: cashier_commission,
+            rete_iva: 0,
+            rete_iva_percentage: 0,
+            rete_ica: 0,
+            rete_ica_percentage: 0,
+            total_neto: cashier_commission
+          },
+          facturaNumber: null,
+          facturaProvNumber: null,
+          comentarios: `Comisión generada automáticamente para el arqueo ${arqueo_number || ''}`,
+          voucher: null
+        };
+
+        // Call the createExpense function with the prepared data
+        const expenseClient = await pool.connect();
+        try {
+          await createExpense({ body: expenseData }, { status: () => { }, json: () => { } });
+        } finally {
+          expenseClient.release();
+        }
+      } catch (expenseError) {
+        console.error('Error al crear el egreso por comisión:', expenseError);
+      }
+    }
+
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error en createIncome:', error);
