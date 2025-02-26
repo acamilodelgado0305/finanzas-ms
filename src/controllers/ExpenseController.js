@@ -97,8 +97,8 @@ export const bulkUploadExpenses = async (req, res) => {
         user_id: row.user_id,
         account_id: accountId,
         category_id: categoryId,
-        base_amount: parseFloat(row.base_amount),
-        amount: parseFloat(row.amount),
+        base_total_net: parseFloat(row.base_total_net),
+        total_net: parseFloat(row.total_net),
         type: row.type || '',
         sub_type: row.sub_type || '',
         date: formattedDate,
@@ -107,10 +107,10 @@ export const bulkUploadExpenses = async (req, res) => {
         recurrent: row.recurrent || false,
         tax_type: row.tax_type || null,
         tax_percentage: parseFloat(row.tax_percentage) || 0,
-        tax_amount: parseFloat(row.tax_amount) || 0,
+        tax_total_net: parseFloat(row.tax_total_net) || 0,
         retention_type: row.retention_type || null,
         retention_percentage: parseFloat(row.retention_percentage) || 0,
-        retention_amount: parseFloat(row.retention_amount) || 0,
+        retention_total_net: parseFloat(row.retention_total_net) || 0,
         timerecurrent: row.timerecurrent || 0,
         estado: row.estado || true,
         provider_id: row.provider_id || null,
@@ -124,7 +124,7 @@ export const bulkUploadExpenses = async (req, res) => {
         const accountResult = await client.query(accountQuery, [accountId]);
 
         const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
-        const newBalance = currentBalance - expenseData.amount; // Restar el nuevo gasto al balance actual
+        const newBalance = currentBalance - expenseData.total_net; // Restar el nuevo gasto al balance actual
 
         const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
         await client.query(updateAccountQuery, [newBalance, accountId]);
@@ -134,8 +134,8 @@ export const bulkUploadExpenses = async (req, res) => {
     // Insertar en la base de datos
     const insertQuery = `
       INSERT INTO expenses (
-        id, user_id, account_id, category_id, base_amount, amount, type, sub_type, date, voucher, description,
-        recurrent, tax_type, tax_percentage, tax_amount, retention_type, retention_percentage, retention_amount,
+        id, user_id, account_id, category_id, base_total_net, total_net, type, sub_type, date, voucher, description,
+        recurrent, tax_type, tax_percentage, tax_total_net, retention_type, retention_percentage, retention_total_net,
         timerecurrent, estado, provider_id
       ) VALUES 
       ${newExpenses.map(
@@ -162,10 +162,37 @@ export const bulkUploadExpenses = async (req, res) => {
 // Obtener todos los gastos
 export const getAllExpenses = async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM expenses');
-    res.json(result.rows);
+    // Consulta principal para obtener todos los egresos
+    const expensesQuery = `
+      SELECT * 
+      FROM expenses 
+      ORDER BY date DESC`; // Ordenar por fecha descendente para mostrar los más recientes primero
+
+    const expensesResult = await pool.query(expensesQuery);
+    const expenses = expensesResult.rows;
+
+    // Obtener los items relacionados para cada egreso
+    const expenseItemsQuery = `
+      SELECT * 
+      FROM expense_items 
+      WHERE expense_id = $1`;
+
+    // Iterar sobre cada egreso y obtener sus items
+    const expensesWithItems = await Promise.all(
+      expenses.map(async (expense) => {
+        const itemsResult = await pool.query(expenseItemsQuery, [expense.id]);
+        return {
+          ...expense,
+          items: itemsResult.rows, // Agregar los items al egreso
+        };
+      })
+    );
+
+    // Enviar la respuesta con los egresos y sus items
+    res.json(expensesWithItems);
   } catch (error) {
-    res.status(500).json({ error: 'Error al obtener los gastos' });
+    console.error('Error al obtener los gastos:', error);
+    res.status(500).json({ error: 'Error interno del servidor', details: error.message });
   }
 };
 
@@ -313,15 +340,40 @@ export const createExpense = async (req, res) => {
 
 //------------------------OBETNER GASTO POR ID------------------------//
 export const getExpenseById = async (req, res) => {
-  const { id } = req.params;
+  const { id } = req.params; // ID del egreso
   try {
-    const result = await pool.query('SELECT * FROM expenses WHERE id = $1', [id]);
-    if (result.rows.length === 0) {
+    // Consulta principal para obtener el egreso
+    const expenseQuery = `
+      SELECT * 
+      FROM expenses 
+      WHERE id = $1`;
+
+    const expenseResult = await pool.query(expenseQuery, [id]);
+    if (expenseResult.rows.length === 0) {
       return res.status(404).json({ error: 'Gasto no encontrado' });
     }
-    res.json(result.rows[0]);
+
+    const expense = expenseResult.rows[0];
+
+    // Consulta secundaria para obtener los items relacionados
+    const itemsQuery = `
+      SELECT * 
+      FROM expense_items 
+      WHERE expense_id = $1`;
+
+    const itemsResult = await pool.query(itemsQuery, [id]);
+
+    // Combinar el egreso con sus items
+    const expenseWithItems = {
+      ...expense,
+      items: itemsResult.rows, // Agregar los items al egreso
+    };
+
+    // Enviar la respuesta con el egreso y sus items
+    res.json(expenseWithItems);
   } catch (error) {
-    res.status(500).json({ error: 'Error al obtener el gasto' });
+    console.error('Error al obtener el gasto:', error);
+    res.status(500).json({ error: 'Error interno del servidor', details: error.message });
   }
 };
 
@@ -360,7 +412,7 @@ export const updateExpense = async (req, res) => {
       });
     }
 
-    const oldAmount = currentExpense.rows[0].total_net;
+    const oldtotal_net = currentExpense.rows[0].total_net;
     const oldAccountId = currentExpense.rows[0].account_id;
 
     // Procesar el voucher si existe
@@ -375,7 +427,7 @@ export const updateExpense = async (req, res) => {
       // Devolver monto a la cuenta anterior
       await client.query(
         'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
-        [oldAmount, oldAccountId]
+        [oldtotal_net, oldAccountId]
       );
 
       // Descontar de la nueva cuenta
@@ -393,7 +445,7 @@ export const updateExpense = async (req, res) => {
       }
     } else {
       // Misma cuenta, actualizar la diferencia
-      const difference = expense_totals.total_neto - oldAmount;
+      const difference = expense_totals.total_neto - oldtotal_net;
       const accountResult = await client.query(
         'UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING balance',
         [difference, account_id]
@@ -513,51 +565,69 @@ export const updateExpense = async (req, res) => {
 
 export const deleteExpense = async (req, res) => {
   const client = await pool.connect();
-
   try {
     await client.query('BEGIN');
-
     const { id } = req.params;
 
-    // Get expense details before deletion
-    const expenseQuery = 'SELECT amount, account_id FROM expenses WHERE id = $1';
+    // Obtener detalles del gasto antes de eliminarlo
+    const expenseQuery = `
+      SELECT total_net, account_id, estado 
+      FROM expenses 
+      WHERE id = $1
+    `;
     const expenseResult = await client.query(expenseQuery, [id]);
-
     if (expenseResult.rows.length === 0) {
       return res.status(404).json({
         error: 'Gasto no encontrado',
         details: `No se encontró ningún gasto con el ID ${id}`
       });
     }
+    const { total_net, account_id, estado } = expenseResult.rows[0];
 
-    const { amount, account_id } = expenseResult.rows[0];
+    // Solo devolver el monto si el estado del gasto era true (activo)
+    if (estado) {
+      // Actualizar el saldo de la cuenta
+      const updateAccountQuery = `
+        UPDATE accounts 
+        SET balance = balance + $1 
+        WHERE id = $2 
+        RETURNING *
+      `;
+      const accountResult = await client.query(updateAccountQuery, [total_net, account_id]);
+      if (accountResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'Cuenta no encontrada',
+          details: 'La cuenta asociada al gasto no existe'
+        });
+      }
+    }
 
-    // Update account balance
-    const updateAccountQuery = `
-      UPDATE accounts 
-      SET balance = balance + $1 
-      WHERE id = $2 
-      RETURNING *`;
+    // Eliminar los items relacionados con el gasto
+    const deleteItemsQuery = `
+      DELETE FROM expense_items 
+      WHERE expense_id = $1
+    `;
+    await client.query(deleteItemsQuery, [id]);
 
-    await client.query(updateAccountQuery, [amount, account_id]);
+    // Eliminar el gasto principal
+    const deleteExpenseQuery = `
+      DELETE FROM expenses 
+      WHERE id = $1 
+      RETURNING *
+    `;
+    const deleteResult = await client.query(deleteExpenseQuery, [id]);
 
-    // Delete expense
-    const deleteResult = await client.query(
-      'DELETE FROM expenses WHERE id = $1 RETURNING *',
-      [id]
-    );
-
+    // Confirmar la transacción
     await client.query('COMMIT');
 
     res.status(200).json({
       status: 'success',
-      message: 'Gasto eliminado exitosamente',
+      message: 'Gasto y sus items eliminados exitosamente',
       data: deleteResult.rows[0]
     });
-
   } catch (error) {
     await client.query('ROLLBACK');
-
     console.error('Error en deleteExpense:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
@@ -567,7 +637,6 @@ export const deleteExpense = async (req, res) => {
     client.release();
   }
 };
-
 
 
 export const ExpenseManageVouchers = async (req, res) => {
@@ -752,7 +821,7 @@ export const updateExpenseStatus = async (req, res) => {
 
     // Recuperamos el gasto para obtener los detalles necesarios
     const expenseQuery = `
-      SELECT amount, account_id, estado 
+      SELECT total_net, account_id, estado 
       FROM expenses 
       WHERE id = $1
     `;
@@ -781,7 +850,7 @@ export const updateExpenseStatus = async (req, res) => {
         RETURNING balance
       `;
 
-      const accountResult = await client.query(updateAccountQuery, [expense.amount, expense.account_id]);
+      const accountResult = await client.query(updateAccountQuery, [expense.total_net, expense.account_id]);
 
       if (accountResult.rows.length === 0) {
         throw new Error('Cuenta no encontrada');

@@ -105,7 +105,7 @@ export const bulkUploadIncomes = async (req, res) => {
         estado: row.estado || true,
         amountfev: parseFloat(row.amountfev) || 0,
         amountdiverse: parseFloat(row.amountdiverse) || 0,
-        cashier_name: row.cashier_name || null,
+        cashier_id: row.cashier_id || null,
         arqueo_number: row.arqueo_number || null,
         other_income: row.other_income || null,
         cash_received: row.cash_received || null,
@@ -130,7 +130,7 @@ export const bulkUploadIncomes = async (req, res) => {
     const insertQuery = `
       INSERT INTO incomes (
         id, user_id, account_id, category_id, amount, type, date, voucher, description, estado, amountfev, amountdiverse,
-        cashier_name, arqueo_number, other_income, cash_received, cashier_commission, start_period, end_period
+        cashier_id, arqueo_number, other_income, cash_received, cashier_commission, start_period, end_period
       ) VALUES 
       ${newIncomes.map(
       (_, i) =>
@@ -184,7 +184,7 @@ export const createIncome = async (req, res) => {
       estado,
       amountfev,
       amountdiverse,
-      cashier_name,
+      cashier_id,
       arqueo_number,
       other_income,
       cash_received,
@@ -279,7 +279,7 @@ export const createIncome = async (req, res) => {
         estado,
         amountfev,
         amountdiverse,
-        cashier_name,
+        cashier_id,
         arqueo_number,
         other_income,
         cash_received,
@@ -305,7 +305,7 @@ export const createIncome = async (req, res) => {
       estado || false,
       amountfev || null,
       amountdiverse || null,
-      cashier_name || null,
+      cashier_id || null,
       arqueo_number || null,
       other_income || null,
       cash_received || null,
@@ -427,7 +427,7 @@ export const updateIncome = async (req, res) => {
       estado,
       amountfev,
       amountdiverse,
-      cashier_name,
+      cashier_id,
       arqueo_number,
       other_income,
       cash_received,
@@ -519,7 +519,7 @@ export const updateIncome = async (req, res) => {
       estado,
       amountfev,
       amountdiverse,
-      cashier_name,
+      cashier_id,
       arqueo_number,
       other_income,
       cash_received,
