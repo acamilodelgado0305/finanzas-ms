@@ -326,20 +326,28 @@ export const createIncome = async (req, res) => {
     // Check if the income type is "arqueo" and if there's a cashier commission
     if (type === 'arqueo' && cashier_commission > 0) {
       try {
+        // Validar que arqueo_number esté definido
+        if (!arqueo_number) {
+          throw new Error('El número de arqueo no está definido.');
+        }
+    
+        // Formatear el número de egreso como C-[numerodearqueo]
+        const egresoNumber = `C-${arqueo_number}`;
+    
         // Prepare the expense data based on the commission
         const expenseData = {
           user_id,
           account_id,
           tipo: 'commission', // Assuming there's a specific type for commission expenses
           date,
-          proveedor: null, // You may need to specify a provider or leave it null
-          description: `Comisión de arqueo ${arqueo_number || ''}`,
+          proveedor: cashier_id, // You may need to specify a provider or leave it null
+          description: `Comisión de arqueo ${description}`, // Actualizar descripción
           estado: true,
           expense_items: [
             {
               type: 'commission',
               product: 'Comisión de Arqueo',
-              description: `Comisión de arqueo ${arqueo_number || ''}`,
+              description: `Comisión de arqueo ${description}`, // Actualizar descripción
               quantity: 1,
               unit_price: cashier_commission,
               discount: 0
@@ -355,12 +363,13 @@ export const createIncome = async (req, res) => {
             rete_ica_percentage: 0,
             total_neto: cashier_commission
           },
-          facturaNumber: null,
+          facturaNumber: egresoNumber,
           facturaProvNumber: null,
-          comentarios: `Comisión generada automáticamente para el arqueo ${arqueo_number || ''}`,
-          voucher: null
-        };
+          comentarios: `Comisión generada automáticamente para el arqueo ${description}`, // Actualizar comentarios
+          voucher: null,
 
+        };
+    
         // Call the createExpense function with the prepared data
         const expenseClient = await pool.connect();
         try {
