@@ -4,7 +4,6 @@ import Joi from 'joi';
 
 // Esquema de validación con Joi
 const providerSchema = Joi.object({
-  tipoTercero: Joi.string().required(),
   tipoPersona: Joi.string().required(),
   tipoIdentificacion: Joi.string().required(),
   identificacion: Joi.string().optional().allow(''),
@@ -24,7 +23,7 @@ const providerSchema = Joi.object({
   dv: Joi.string().optional().allow(''),
 });
 
-// Crear un nuevo proveedor
+
 export const createProvider = async (req, res) => {
   try {
     // Validar los datos de entrada con Joi
@@ -36,10 +35,8 @@ export const createProvider = async (req, res) => {
         details: error.details
       });
     }
-
     // Extraer los datos del cuerpo de la solicitud
     const {
-      tipoTercero,
       tipoPersona,
       tipoIdentificacion,
       identificacion,
@@ -58,75 +55,94 @@ export const createProvider = async (req, res) => {
       nit,
       dv,
     } = req.body;
-
-    // Generar un UUID para el ID del proveedor
+    // Generar un UUID para el ID
     const id = uuidv4();
-
-    // Consulta SQL para insertar el proveedor
-    const query = `
-      INSERT INTO proveedores (
+    // Iniciar una transacción
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Primero intentemos insertar en terceros para identificar si el problema está ahí
+      const terceroQuery = `
+        INSERT INTO terceros (id, nombre, tipo)
+        VALUES ($1, $2, $3)
+        RETURNING *`;
+      const terceroValues = [
         id,
-        tipo_tercero,
-        tipo_persona,
-        tipo_identificacion,
-        numero_identificacion,
-        nombre_comercial,
-        tipo_regimen,
+        nombreComercial || '',
+        'proveedor'
+      ];
+      // Ejecutar la consulta para terceros
+      const terceroResult = await client.query(terceroQuery, terceroValues);
+      // Consulta para insertar el proveedor
+      const proveedorQuery = `
+        INSERT INTO proveedores (
+          id,
+          tipo_persona,
+          tipo_identificacion,
+          numero_identificacion,
+          nombre_comercial,
+          tipo_regimen,
+          direccion,
+          ciudad,
+          nombres_contacto,
+          apellidos_contacto,
+          nombres_contacto_facturacion,
+          apellidos_contacto_facturacion,
+          correo_contacto_facturacion,
+          telefono_facturacion,
+          codigo_postal,
+          codigo_sucursal,
+          nit,
+          dv, 
+          estado
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        RETURNING *`;
+      const proveedorValues = [
+        id,
+        tipoPersona,
+        tipoIdentificacion,
+        identificacion,
+        nombreComercial || '',
+        tipoRegimen,
         direccion,
         ciudad,
-        nombres_contacto,
-        apellidos_contacto,
-        nombres_contacto_facturacion,
-        apellidos_contacto_facturacion,
-        correo_contacto_facturacion,
-        telefono_facturacion,
-        codigo_postal,
-        codigo_sucursal,
-        nit,
-        dv, 
-        estado
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19 ,$20)
-      RETURNING *`;
-
-    // Valores para la consulta SQL
-    const values = [
-      id,
-      tipoTercero,
-      tipoPersona,
-      tipoIdentificacion,
-      identificacion,
-      nombreComercial || '',
-      tipoRegimen,
-      direccion,
-      ciudad,
-      nombresContacto,
-      apellidosContacto,
-      nombresContactoFacturacion || '',
-      apellidosContactoFacturacion || '',
-      correoElectronicoFacturacion || null,
-      telefonoFacturacion || '',
-      codigoPostal || '',
-      codigoSucursal || '',
-      nit || null,
-      dv || null,
-      'activo',
-    ];
-
-    // Ejecutar la consulta SQL
-    const result = await pool.query(query, values);
-
-    // Respuesta exitosa
-    res.status(201).json({
-      success: true,
-      message: 'Proveedor creado exitosamente',
-      data: result.rows[0]
-    });
-
+        nombresContacto,
+        apellidosContacto,
+        nombresContactoFacturacion || '',
+        apellidosContactoFacturacion || '',
+        correoElectronicoFacturacion || null,
+        telefonoFacturacion || '',
+        codigoPostal || '',
+        codigoSucursal || '',
+        nit || null,
+        dv || null,
+        'activo',
+      ];
+      // Ejecutar la consulta para proveedores
+      const proveedorResult = await client.query(proveedorQuery, proveedorValues);
+      // Confirmar la transacción
+      await client.query('COMMIT');
+      // Respuesta exitosa
+      res.status(201).json({
+        success: true,
+        message: 'Proveedor y tercero creados exitosamente',
+        data: {
+          proveedor: proveedorResult.rows[0],
+          tercero: terceroResult.rows[0]
+        }
+      });
+    } catch (error) {
+      // Revertir la transacción en caso de error
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      // Liberar el cliente
+      client.release();
+    }
   } catch (error) {
     console.error('Error en createProvider:', error);
-
-    // Manejar errores de duplicidad (por ejemplo, NIT repetido)
+    // Manejar errores de duplicidad
     if (error.code === '23505') {
       return res.status(409).json({
         success: false,
@@ -134,7 +150,6 @@ export const createProvider = async (req, res) => {
         details: 'Ya existe un proveedor con estos datos'
       });
     }
-
     // Manejar otros errores
     res.status(500).json({
       success: false,
@@ -143,6 +158,7 @@ export const createProvider = async (req, res) => {
     });
   }
 };
+
 
 // Obtener todos los proveedores
 export const getAllProviders = async (req, res) => {
@@ -172,7 +188,7 @@ export const getProviderById = async (req, res) => {
 export const updateProvider = async (req, res) => {
   const { id } = req.params;
   const {
-    tipoTercero,
+   
     tipoPersona,
     tipoIdentificacion,
     identificacion,
@@ -201,7 +217,7 @@ export const updateProvider = async (req, res) => {
           telefono_facturacion = $13, codigo_postal = $14, codigo_sucursal = $15, nit = $16, dv = $17, estado = $18
       WHERE id = $19 RETURNING *`,
       [
-        tipoTercero,
+        poTercero,
         tipoPersona,
         tipoIdentificacion,
         identificacion,
