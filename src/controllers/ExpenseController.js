@@ -212,9 +212,10 @@ export const createExpense = async (req, res) => {
       tipo,
       date,
       proveedor,
+      categoria, // Usada para expenses
       description,
       estado,
-      expense_items,
+      expense_items, // Cada item debe incluir su propia 'categoria'
       expense_totals,
       facturaNumber,
       facturaProvNumber,
@@ -222,20 +223,29 @@ export const createExpense = async (req, res) => {
       voucher
     } = req.body;
 
-    // Procesar el voucher si existe
+    // Procesar voucher
     const processedVoucher = voucher
       ? '{' + JSON.parse(voucher)
-        .map(v => `"${v.replace(/"/g, '\\"')}"`)
-        .join(',') + '}'
+          .map(v => `"${v.replace(/"/g, '\\"')}"`)
+          .join(',') + '}'
       : null;
 
-    // Verificar y actualizar el balance de la cuenta si estado es true
+    // Validar que la categoría exista si se proporciona
+    let categoriaValue = null;
+    if (categoria) {
+      const categoryCheck = await client.query('SELECT id FROM categories WHERE id = $1', [categoria]);
+      if (categoryCheck.rows.length === 0) {
+        throw new Error('La categoría proporcionada no existe');
+      }
+      categoriaValue = categoria;
+    }
 
+    // Actualizar balance de cuenta
     const updateAccountQuery = `
-        UPDATE accounts 
-        SET balance = balance - $1 
-        WHERE id = $2 
-        RETURNING balance`;
+      UPDATE accounts
+      SET balance = balance - $1
+      WHERE id = $2
+      RETURNING balance`;
 
     const accountResult = await client.query(updateAccountQuery, [
       expense_totals.total_neto,
@@ -250,18 +260,17 @@ export const createExpense = async (req, res) => {
       throw new Error('Saldo insuficiente en la cuenta');
     }
 
-
-    // Insertar el gasto principal
+    // Insertar gasto principal (con categoría validada)
     const insertExpenseQuery = `
       INSERT INTO expenses (
-        id, user_id, account_id, date, provider_id, description,
+        id, user_id, account_id, date, provider_id, category, description,
         estado, invoice_number, provider_invoice_number, comments,
         voucher, type, total_gross, discounts, subtotal,
         ret_vat, ret_vat_percentage, ret_ica, ret_ica_percentage,
         total_net
       )
-      VALUES ($1, $2, $3, $4::timestamp, $5, $6, $7, $8, $9, $10, 
-              $11::text[], $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4::timestamp, $5, $6, $7, $8, $9, $10,
+              $11, $12::text[], $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING *`;
 
     const expenseValues = [
@@ -270,6 +279,7 @@ export const createExpense = async (req, res) => {
       account_id,
       date,
       proveedor,
+      categoriaValue, // Categoría del gasto principal, puede ser NULL
       description,
       estado,
       facturaNumber,
@@ -290,21 +300,32 @@ export const createExpense = async (req, res) => {
     const expenseResult = await client.query(insertExpenseQuery, expenseValues);
     const expense = expenseResult.rows[0];
 
-    // Insertar los items del gasto
+    // Insertar items del gasto (con validación de categoría)
     const insertItemQuery = `
       INSERT INTO expense_items (
-        id, expense_id, type, product_name, description,
+        id, expense_id, type, category, product_name, description,
         quantity, unit_price, discount, total
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`;
 
     const itemResults = [];
     for (const item of expense_items) {
+      let itemCategoriaValue = null;
+
+      if (item.categoria) {
+        const itemCategoryCheck = await client.query('SELECT id FROM categories WHERE id = $1', [item.categoria]);
+        if (itemCategoryCheck.rows.length === 0) {
+          throw new Error(`La categoría del ítem "${item.product}" no existe`);
+        }
+        itemCategoriaValue = item.categoria;
+      }
+
       const itemValues = [
         uuidv4(),
         expense.id,
         item.type,
+        itemCategoriaValue, // Categoría validada o NULL
         item.product,
         item.description,
         item.quantity,
@@ -326,6 +347,7 @@ export const createExpense = async (req, res) => {
         items: itemResults
       }
     });
+
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error en createExpense:', error);
@@ -337,6 +359,7 @@ export const createExpense = async (req, res) => {
     client.release();
   }
 };
+
 
 //------------------------OBETNER GASTO POR ID------------------------//
 export const getExpenseById = async (req, res) => {

@@ -3,7 +3,6 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import accountRoutes from "./routes/accountRoutes.js";
 import categorieRouter from "./routes/categorieRoutes.js";
-import transaccionRouter from "./routes/transaccionRoutes.js";
 import transferRouter from "./routes/transfersRoutes.js";
 import pagospendingRouter from "./routes/pagospendingRoutes.js"
 import incomesRoutes from './routes/incomes.js';
@@ -39,7 +38,6 @@ const PORT = process.env.PORT || 3005;
 // Rutas protegidas (requieren autenticación)
 app.use("/api", accountRoutes);
 app.use("/api", categorieRouter);
-app.use("/api", transaccionRouter);
 app.use("/api", transferRouter);
 app.use("/api", pagospendingRouter);
 app.use("/api", incomesRoutes);
