@@ -267,10 +267,10 @@ export const createExpense = async (req, res) => {
         estado, invoice_number, provider_invoice_number, comments,
         voucher, type, total_gross, discounts, subtotal,
         ret_vat, ret_vat_percentage, ret_ica, ret_ica_percentage,
-        total_net
+        total_net, total_impuestos
       )
       VALUES ($1, $2, $3, $4::timestamp, $5, $6, $7, $8, $9, $10,
-              $11, $12::text[], $13, $14, $15, $16, $17, $18, $19, $20, $21)
+              $11, $12::text[], $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING *`;
 
     const expenseValues = [
@@ -290,23 +290,24 @@ export const createExpense = async (req, res) => {
       expense_totals.total_bruto,
       expense_totals.descuentos,
       expense_totals.subtotal,
-      expense_totals.rete_iva,
-      expense_totals.rete_iva_percentage,
-      expense_totals.rete_ica,
-      expense_totals.rete_ica_percentage,
-      expense_totals.total_neto
+      expense_totals.iva, // Mapeado desde iva a ret_vat
+      expense_totals.iva_percentage, // Mapeado desde iva_percentage a ret_vat_percentage
+      expense_totals.retencion, // Mapeado desde retencion a ret_ica
+      expense_totals.retencion_percentage, // Mapeado desde retencion_percentage a ret_ica_percentage
+      expense_totals.total_neto,
+      expense_totals.total_impuestos // Nuevo campo para total_impuestos
     ];
 
     const expenseResult = await client.query(insertExpenseQuery, expenseValues);
     const expense = expenseResult.rows[0];
 
-    // Insertar items del gasto (con validación de categoría)
+    // Insertar items del gasto (con validación de categoría y nuevos campos)
     const insertItemQuery = `
       INSERT INTO expense_items (
         id, expense_id, type, category, product_name, description,
-        quantity, unit_price, discount, total
+        quantity, unit_price, discount, total, tax_charge, tax_withholding
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *`;
 
     const itemResults = [];
@@ -331,7 +332,9 @@ export const createExpense = async (req, res) => {
         item.quantity,
         item.unit_price,
         item.discount,
-        (item.quantity * item.unit_price) - (item.discount || 0)
+        item.total, // Usamos el total enviado desde el frontend
+        item.tax_charge || 0, // Nuevo campo, con valor por defecto 0 si no se proporciona
+        item.tax_withholding || 0 // Nuevo campo, con valor por defecto 0 si no se proporciona
       ];
 
       const itemResult = await client.query(insertItemQuery, itemValues);
@@ -359,7 +362,6 @@ export const createExpense = async (req, res) => {
     client.release();
   }
 };
-
 
 //------------------------OBETNER GASTO POR ID------------------------//
 export const getExpenseById = async (req, res) => {
