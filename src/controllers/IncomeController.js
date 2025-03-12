@@ -325,63 +325,69 @@ export const createIncome = async (req, res) => {
 
 
     // Check if the income type is "arqueo" and if there's a cashier commission
-    if (type === 'arqueo' && cashier_commission > 0) {
-      try {
-        // Validar que arqueo_number esté definido
-        if (!arqueo_number) {
-          throw new Error('El número de arqueo no está definido.');
-        }
-
-        // Formatear el número de egreso como C-[numerodearqueo]
-        const egresoNumber = `C-${arqueo_number}`;
-
-        // Prepare the expense data based on the commission
-        const expenseData = {
-          user_id,
-          account_id,
-          tipo: 'commission', // Assuming there's a specific type for commission expenses
-          date,
-          proveedor: cashier_id, // You may need to specify a provider or leave it null
-          description: `Comisión de arqueo ${description}`, // Actualizar descripción
-          estado: true,
-          expense_items: [
-            {
-              type: 'commission',
-              product: 'Comisión de Arqueo',
-              description: `Comisión de arqueo ${description}`, // Actualizar descripción
-              quantity: 1,
-              unit_price: cashier_commission,
-              discount: 0
-            }
-          ],
-          expense_totals: {
-            total_bruto: cashier_commission,
-            descuentos: 0,
-            subtotal: cashier_commission,
-            rete_iva: 0,
-            rete_iva_percentage: 0,
-            rete_ica: 0,
-            rete_ica_percentage: 0,
-            total_neto: cashier_commission
-          },
-          facturaNumber: egresoNumber,
-          facturaProvNumber: null,
-          comentarios: `Comisión generada automáticamente para el arqueo ${description}`, // Actualizar comentarios
-          voucher: null,
-
-        };
-
-        // Call the createExpense function with the prepared data
-        const expenseClient = await pool.connect();
-        try {
-          await createExpense({ body: expenseData }, { status: () => { }, json: () => { } });
-        } finally {
-          expenseClient.release();
-        }
-      } catch (expenseError) {
-        console.error('Error al crear el egreso por comisión:', expenseError);
-      }
+   // Check if the income type is "arqueo" and if there's a cashier commission
+if (type === 'arqueo' && cashier_commission > 0) {
+  try {
+    // Validar que arqueo_number esté definido
+    if (!arqueo_number) {
+      throw new Error('El número de arqueo no está definido.');
     }
+
+    // Formatear el número de egreso como C-[numerodearqueo]
+    const egresoNumber = `C-${arqueo_number}`;
+
+    // Prepare the expense data based on the commission
+    const expenseData = {
+      user_id,
+      account_id,
+      tipo: 'commission', // Tipo específico para comisiones
+      date,
+      proveedor: cashier_id, // Asegúrate de que cashier_id sea un proveedor válido o usa null
+      categoria: null, // Si no necesitas una categoría para el egreso, déjalo como null
+      description: `Comisión de arqueo ${description || ''}`, // Descripción actualizada
+      estado: true, // Asegúrate de que este sea el estado deseado
+      expense_items: [
+        {
+          type: 'commission',
+          categoria: null, // Si no necesitas una categoría para el ítem, déjalo como null
+          product: 'Comisión de Arqueo',
+          description: `Comisión de arqueo ${description || ''}`, // Descripción actualizada
+          quantity: 1,
+          unit_price: cashier_commission,
+          discount: 0,
+          total: cashier_commission, // Total explícito para el ítem
+          tax_charge: 0, // Impuestos cobrados (0 si no aplica)
+          tax_withholding: 0, // Retenciones (0 si no aplica)
+        }
+      ],
+      expense_totals: {
+        total_bruto: cashier_commission, // Total bruto
+        descuentos: 0, // Descuentos
+        subtotal: cashier_commission, // Subtotal
+        iva: 0, // Mapeado a ret_vat en createExpense
+        iva_percentage: 0, // Mapeado a ret_vat_percentage en createExpense
+        retencion: 0, // Mapeado a ret_ica en createExpense
+        retencion_percentage: 0, // Mapeado a ret_ica_percentage en createExpense
+        total_neto: cashier_commission, // Total neto
+        total_impuestos: 0, // Total de impuestos (suma de iva y retencion)
+      },
+      facturaNumber: egresoNumber, // Número de factura formateado
+      facturaProvNumber: null, // Número de factura del proveedor, si aplica
+      comentarios: `Comisión generada automáticamente para el arqueo ${description || ''}`, // Comentarios actualizados
+      voucher: null, // Sin comprobantes, si no se necesitan
+    };
+
+    // Call the createExpense function with the prepared data
+    const expenseClient = await pool.connect();
+    try {
+      await createExpense({ body: expenseData }, { status: () => { }, json: () => { } });
+    } finally {
+      expenseClient.release();
+    }
+  } catch (expenseError) {
+    console.error('Error al crear el egreso por comisión:', expenseError);
+  }
+}
 
   } catch (error) {
     await client.query('ROLLBACK');
