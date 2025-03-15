@@ -415,6 +415,7 @@ export const updateExpense = async (req, res) => {
       tipo,
       date,
       proveedor,
+      categoria, // Campo para la categoría principal del egreso
       description,
       estado,
       expense_items,
@@ -425,34 +426,56 @@ export const updateExpense = async (req, res) => {
       voucher
     } = req.body;
 
-    // Obtener el gasto actual
-    const currentExpenseQuery = 'SELECT total_net, account_id FROM expenses WHERE id = $1';
-    const currentExpense = await client.query(currentExpenseQuery, [id]);
-
-    if (currentExpense.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        error: 'Gasto no encontrado',
-        details: `No se encontró ningún gasto con el ID ${id}`
-      });
+    // Validar que todos los campos requeridos estén presentes
+    if (!account_id || !date || !expense_totals || !expense_items) {
+      throw new Error('Faltan campos requeridos: account_id, date, expense_totals o expense_items');
     }
 
-    const oldtotal_net = currentExpense.rows[0].total_net;
-    const oldAccountId = currentExpense.rows[0].account_id;
+    // Obtener el gasto actual para manejar diferencias en el balance y validar existencia
+    const currentExpenseQuery = `
+      SELECT total_net, account_id, category 
+      FROM expenses 
+      WHERE id = $1`;
+    const currentExpenseResult = await client.query(currentExpenseQuery, [id]);
+
+    if (currentExpenseResult.rows.length === 0) {
+      throw new Error(`No se encontró ningún gasto con el ID ${id}`);
+    }
+
+    const { total_net: oldTotalNet, account_id: oldAccountId, category: oldCategory } = currentExpenseResult.rows[0];
+
+    // Validar la categoría principal si se proporciona
+    let categoriaValue = oldCategory; // Mantener la categoría existente por defecto
+    if (categoria && categoria !== oldCategory) {
+      const categoryCheck = await client.query('SELECT id FROM categories WHERE id = $1', [categoria]);
+      if (categoryCheck.rows.length === 0) {
+        throw new Error(`La categoría principal ${categoria} no existe`);
+      }
+      categoriaValue = categoria;
+    }
 
     // Procesar el voucher si existe
-    const processedVoucher = voucher
-      ? '{' + JSON.parse(voucher)
-        .map(v => `"${v.replace(/"/g, '\\"')}"`)
-        .join(',') + '}'
-      : null;
+    let processedVoucher = null;
+    if (voucher) {
+      try {
+        const parsedVoucher = JSON.parse(voucher);
+        if (!Array.isArray(parsedVoucher)) {
+          throw new Error('El formato de voucher debe ser un array');
+        }
+        processedVoucher = '{' + parsedVoucher
+          .map(v => `"${v.replace(/"/g, '\\"')}"`)
+          .join(',') + '}';
+      } catch (error) {
+        throw new Error(`Error al procesar el voucher: ${error.message}`);
+      }
+    }
 
-    // Si la cuenta cambió, actualizar ambas cuentas
+    // Manejar el cambio de cuenta o ajuste de balance
     if (oldAccountId !== account_id) {
-      // Devolver monto a la cuenta anterior
+      // Devolver el monto a la cuenta anterior
       await client.query(
         'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
-        [oldtotal_net, oldAccountId]
+        [oldTotalNet, oldAccountId]
       );
 
       // Descontar de la nueva cuenta
@@ -461,27 +484,29 @@ export const updateExpense = async (req, res) => {
         [expense_totals.total_neto, account_id]
       );
 
+      if (newAccountResult.rows.length === 0) {
+        throw new Error('La nueva cuenta no existe');
+      }
+
       if (newAccountResult.rows[0].balance < 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          error: 'Saldo insuficiente',
-          details: 'La cuenta destino no tiene saldo suficiente'
-        });
+        throw new Error('Saldo insuficiente en la nueva cuenta');
       }
     } else {
-      // Misma cuenta, actualizar la diferencia
-      const difference = expense_totals.total_neto - oldtotal_net;
-      const accountResult = await client.query(
-        'UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING balance',
-        [difference, account_id]
-      );
+      // Misma cuenta, ajustar la diferencia
+      const difference = expense_totals.total_neto - oldTotalNet;
+      if (difference !== 0) {
+        const accountResult = await client.query(
+          'UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING balance',
+          [difference, account_id]
+        );
 
-      if (accountResult.rows[0].balance < 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          error: 'Saldo insuficiente',
-          details: 'La cuenta no tiene saldo suficiente para el nuevo monto'
-        });
+        if (accountResult.rows.length === 0) {
+          throw new Error('La cuenta no existe');
+        }
+
+        if (accountResult.rows[0].balance < 0) {
+          throw new Error('Saldo insuficiente en la cuenta');
+        }
       }
     }
 
@@ -492,22 +517,24 @@ export const updateExpense = async (req, res) => {
         account_id = $2,
         date = $3,
         provider_id = $4,
-        description = $5,
-        estado = $6,
-        invoice_number = $7,
-        provider_invoice_number = $8,
-        comments = $9,
-        voucher = $10,
-        type = $11,
-        total_gross = $12,
-        discounts = $13,
-        subtotal = $14,
-        ret_vat = $15,
-        ret_vat_percentage = $16,
-        ret_ica = $17,
-        ret_ica_percentage = $18,
-        total_net = $19
-      WHERE id = $20
+        category = $5,
+        description = $6,
+        estado = $7,
+        invoice_number = $8,
+        provider_invoice_number = $9,
+        comments = $10,
+        voucher = $11,
+        type = $12,
+        total_gross = $13,
+        discounts = $14,
+        subtotal = $15,
+        ret_vat = $16,
+        ret_vat_percentage = $17,
+        ret_ica = $18,
+        ret_ica_percentage = $19,
+        total_net = $20,
+        total_impuestos = $21
+      WHERE id = $22
       RETURNING *`;
 
     const expenseValues = [
@@ -515,6 +542,7 @@ export const updateExpense = async (req, res) => {
       account_id,
       date,
       proveedor,
+      categoriaValue, // Categoría validada o existente
       description,
       estado,
       facturaNumber,
@@ -525,45 +553,113 @@ export const updateExpense = async (req, res) => {
       expense_totals.total_bruto,
       expense_totals.descuentos,
       expense_totals.subtotal,
-      expense_totals.rete_iva,
-      expense_totals.rete_iva_percentage,
-      expense_totals.rete_ica,
-      expense_totals.rete_ica_percentage,
+      expense_totals.iva, // Mapeado a ret_vat
+      expense_totals.iva_percentage, // Mapeado a ret_vat_percentage
+      expense_totals.retencion, // Mapeado a ret_ica
+      expense_totals.retencion_percentage, // Mapeado a ret_ica_percentage
       expense_totals.total_neto,
+      expense_totals.total_impuestos, // Nuevo campo para total_impuestos
       id
     ];
 
     const expenseResult = await client.query(updateExpenseQuery, expenseValues);
     const expense = expenseResult.rows[0];
 
-    // Eliminar items antiguos
-    await client.query('DELETE FROM expense_items WHERE expense_id = $1', [id]);
+    // Manejo de ítems: En lugar de eliminar todos, podríamos identificar ítems existentes para actualizarlos
+    // Obtener ítems actuales para comparar
+    const currentItemsQuery = 'SELECT id, type, category, product_name, description, quantity, unit_price, discount, total, tax_charge, tax_withholding FROM expense_items WHERE expense_id = $1';
+    const currentItemsResult = await client.query(currentItemsQuery, [id]);
+    const currentItems = currentItemsResult.rows;
 
-    // Insertar los nuevos items
+    // Mapa para identificar ítems existentes por su ID
+    const currentItemsMap = new Map(currentItems.map(item => [item.id, item]));
+
+    // Preparar las consultas para ítems
     const insertItemQuery = `
       INSERT INTO expense_items (
-        id, expense_id, type, product_name, description,
-        quantity, unit_price, discount, total
+        id, expense_id, type, category, product_name, description,
+        quantity, unit_price, discount, total, tax_charge, tax_withholding
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *`;
+
+    const updateItemQuery = `
+      UPDATE expense_items SET
+        type = $1,
+        category = $2,
+        product_name = $3,
+        description = $4,
+        quantity = $5,
+        unit_price = $6,
+        discount = $7,
+        total = $8,
+        tax_charge = $9,
+        tax_withholding = $10
+      WHERE id = $11
       RETURNING *`;
 
     const itemResults = [];
-    for (const item of expense_items) {
-      const itemValues = [
-        uuidv4(),
-        expense.id,
-        item.type,
-        item.product,
-        item.description,
-        item.quantity,
-        item.unit_price,
-        item.discount || 0,
-        (item.quantity * item.unit_price) - (item.discount || 0)
-      ];
+    const itemsToDelete = new Set(currentItems.map(item => item.id));
 
-      const itemResult = await client.query(insertItemQuery, itemValues);
-      itemResults.push(itemResult.rows[0]);
+    // Procesar cada ítem enviado en la solicitud
+    for (const item of expense_items) {
+      let itemCategoriaValue = null;
+
+      // Validar la categoría del ítem si se proporciona
+      if (item.categoria) {
+        const itemCategoryCheck = await client.query('SELECT id FROM categories WHERE id = $1', [item.categoria]);
+        if (itemCategoryCheck.rows.length === 0) {
+          throw new Error(`La categoría del ítem "${item.product}" no existe`);
+        }
+        itemCategoriaValue = item.categoria;
+      }
+
+      if (item.id && currentItemsMap.has(item.id)) {
+        // Actualizar ítem existente
+        itemsToDelete.delete(item.id); // No eliminar este ítem
+
+        const itemValues = [
+          item.type,
+          itemCategoriaValue,
+          item.product,
+          item.description,
+          item.quantity,
+          item.unit_price,
+          item.discount || 0,
+          item.total || (item.quantity * item.unit_price) - (item.discount || 0),
+          item.tax_charge || 0,
+          item.tax_withholding || 0,
+          item.id
+        ];
+
+        const itemResult = await client.query(updateItemQuery, itemValues);
+        itemResults.push(itemResult.rows[0]);
+      } else {
+        // Insertar nuevo ítem
+        const itemValues = [
+          uuidv4(),
+          expense.id,
+          item.type,
+          itemCategoriaValue,
+          item.product,
+          item.description,
+          item.quantity,
+          item.unit_price,
+          item.discount || 0,
+          item.total || (item.quantity * item.unit_price) - (item.discount || 0),
+          item.tax_charge || 0,
+          item.tax_withholding || 0
+        ];
+
+        const itemResult = await client.query(insertItemQuery, itemValues);
+        itemResults.push(itemResult.rows[0]);
+      }
+    }
+
+    // Eliminar ítems que ya no están en la lista
+    if (itemsToDelete.size > 0) {
+      const deleteItemsQuery = 'DELETE FROM expense_items WHERE id = ANY($1)';
+      await client.query(deleteItemsQuery, [Array.from(itemsToDelete)]);
     }
 
     await client.query('COMMIT');
