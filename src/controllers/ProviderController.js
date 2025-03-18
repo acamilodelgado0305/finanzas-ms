@@ -4,25 +4,17 @@ import Joi from 'joi';
 
 // Esquema de validación con Joi
 const providerSchema = Joi.object({
-  tipoPersona: Joi.string().required(),
   tipoIdentificacion: Joi.string().required(),
-  identificacion: Joi.string().optional().allow(''),
-  nombreComercial: Joi.string().optional().allow(''),
-  codigoSucursal: Joi.string().optional(),
+  numeroIdentificacion: Joi.string().required(),
+  nombreComercial: Joi.string().required(),
   nombresContacto: Joi.string().required(),
   apellidosContacto: Joi.string().required(),
   ciudad: Joi.string().required(),
   direccion: Joi.string().required(),
-  nombresContactoFacturacion: Joi.string().optional(),
-  apellidosContactoFacturacion: Joi.string().optional(),
-  correoElectronicoFacturacion: Joi.string().email().optional(),
-  tipoRegimen: Joi.string().required(),
-  telefonoFacturacion: Joi.string().optional(),
-  codigoPostal: Joi.string().optional(),
-  nit: Joi.string().optional().allow(''),
-  dv: Joi.string().optional().allow(''),
+  correoContactoFacturacion: Joi.string().email().required(),
+  telefonoFacturacion: Joi.string().required(),
+  estado: Joi.string().valid('activo', 'inactivo').default('activo'),
 });
-
 
 export const createProvider = async (req, res) => {
   try {
@@ -32,135 +24,110 @@ export const createProvider = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Datos inválidos',
-        details: error.details
+        details: error.details,
       });
     }
+
     // Extraer los datos del cuerpo de la solicitud
     const {
-      tipoPersona,
       tipoIdentificacion,
-      identificacion,
+      numeroIdentificacion,
       nombreComercial,
-      codigoSucursal,
       nombresContacto,
       apellidosContacto,
       ciudad,
       direccion,
-      nombresContactoFacturacion,
-      apellidosContactoFacturacion,
-      correoElectronicoFacturacion,
-      tipoRegimen,
+      correoContactoFacturacion,
       telefonoFacturacion,
-      codigoPostal,
-      nit,
-      dv,
+      estado,
     } = req.body;
+
     // Generar un UUID para el ID
     const id = uuidv4();
+
     // Iniciar una transacción
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      // Primero intentemos insertar en terceros para identificar si el problema está ahí
+
+      // Insertar en la tabla proveedores
+      const proveedorQuery = `
+        INSERT INTO proveedores (
+          id,
+          tipo_identificacion,
+          numero_identificacion,
+          nombre_comercial,
+          nombres_contacto,
+          apellidos_contacto,
+          direccion,
+          ciudad,
+          correo_contacto_facturacion,
+          telefono_facturacion,
+          estado
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING *`;
+      const proveedorValues = [
+        id,
+        tipoIdentificacion,
+        numeroIdentificacion,
+        nombreComercial,
+        nombresContacto,
+        apellidosContacto,
+        direccion,
+        ciudad,
+        correoContactoFacturacion,
+        telefonoFacturacion,
+        estado || 'activo',
+      ];
+
+      // Ejecutar la consulta para proveedores
+      const proveedorResult = await client.query(proveedorQuery, proveedorValues);
+
+      // Insertar en la tabla terceros
       const terceroQuery = `
         INSERT INTO terceros (id, nombre, tipo)
         VALUES ($1, $2, $3)
         RETURNING *`;
-      const terceroValues = [
-        id,
-        nombreComercial || '',
-        'proveedor'
-      ];
-      // Ejecutar la consulta para terceros
+      const terceroValues = [id, nombreComercial, 'proveedor'];
       const terceroResult = await client.query(terceroQuery, terceroValues);
-      // Consulta para insertar el proveedor
-      const proveedorQuery = `
-        INSERT INTO proveedores (
-          id,
-          tipo_persona,
-          tipo_identificacion,
-          numero_identificacion,
-          nombre_comercial,
-          tipo_regimen,
-          direccion,
-          ciudad,
-          nombres_contacto,
-          apellidos_contacto,
-          nombres_contacto_facturacion,
-          apellidos_contacto_facturacion,
-          correo_contacto_facturacion,
-          telefono_facturacion,
-          codigo_postal,
-          codigo_sucursal,
-          nit,
-          dv, 
-          estado
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-        RETURNING *`;
-      const proveedorValues = [
-        id,
-        tipoPersona,
-        tipoIdentificacion,
-        identificacion,
-        nombreComercial || '',
-        tipoRegimen,
-        direccion,
-        ciudad,
-        nombresContacto,
-        apellidosContacto,
-        nombresContactoFacturacion || '',
-        apellidosContactoFacturacion || '',
-        correoElectronicoFacturacion || null,
-        telefonoFacturacion || '',
-        codigoPostal || '',
-        codigoSucursal || '',
-        nit || null,
-        dv || null,
-        'activo',
-      ];
-      // Ejecutar la consulta para proveedores
-      const proveedorResult = await client.query(proveedorQuery, proveedorValues);
+
       // Confirmar la transacción
       await client.query('COMMIT');
+
       // Respuesta exitosa
       res.status(201).json({
         success: true,
         message: 'Proveedor y tercero creados exitosamente',
         data: {
           proveedor: proveedorResult.rows[0],
-          tercero: terceroResult.rows[0]
-        }
+          tercero: terceroResult.rows[0],
+        },
       });
     } catch (error) {
-      // Revertir la transacción en caso de error
       await client.query('ROLLBACK');
       throw error;
     } finally {
-      // Liberar el cliente
       client.release();
     }
   } catch (error) {
     console.error('Error en createProvider:', error);
-    // Manejar errores de duplicidad
     if (error.code === '23505') {
       return res.status(409).json({
         success: false,
         error: 'Conflicto',
-        details: 'Ya existe un proveedor con estos datos'
+        details: 'Ya existe un proveedor con estos datos',
       });
     }
-    // Manejar otros errores
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',
-      details: error.message
+      details: error.message,
     });
   }
 };
 
-
-// Obtener todos los proveedores
+// Obtener todos los proveedores (sin cambios)
 export const getAllProviders = async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM proveedores');
@@ -170,7 +137,7 @@ export const getAllProviders = async (req, res) => {
   }
 };
 
-// Obtener un proveedor por ID
+// Obtener un proveedor por ID (sin cambios)
 export const getProviderById = async (req, res) => {
   const { id } = req.params;
   try {
@@ -184,56 +151,46 @@ export const getProviderById = async (req, res) => {
   }
 };
 
-// Actualizar un proveedor
+// Actualizar un proveedor (sin cambios relevantes aquí, pero ajustado)
 export const updateProvider = async (req, res) => {
   const { id } = req.params;
   const {
-   
-    tipoPersona,
     tipoIdentificacion,
-    identificacion,
+    numeroIdentificacion,
     nombreComercial,
-    tipoRegimen,
-    direccion,
-    ciudad,
     nombresContacto,
     apellidosContacto,
-    nombresContactoFacturacion,
-    apellidosContactoFacturacion,
+    ciudad,
+    direccion,
+    correoContactoFacturacion,
     telefonoFacturacion,
-    codigoPostal,
-    codigoSucursal,
-    nit,
     estado,
-    dv,  // Incluir dv aquí también
   } = req.body;
 
   try {
     const result = await pool.query(
       `UPDATE proveedores
-      SET tipo_tercero = $1, tipo_persona = $2, tipo_identificacion = $3, numero_identificacion = $4, 
-          nombre_comercial = $5, tipo_regimen = $6, direccion = $7, ciudad = $8, nombres_contacto = $9, 
-          apellidos_contacto = $10, nombres_contacto_facturacion = $11, apellidos_contacto_facturacion = $12, 
-          telefono_facturacion = $13, codigo_postal = $14, codigo_sucursal = $15, nit = $16, dv = $17, estado = $18
-      WHERE id = $19 RETURNING *`,
+       SET tipo_identificacion = $1,
+           numero_identificacion = $2,
+           nombre_comercial = $3,
+           nombres_contacto = $4,
+           apellidos_contacto = $5,
+           direccion = $6,
+           ciudad = $7,
+           correo_contacto_facturacion = $8,
+           telefono_facturacion = $9,
+           estado = $10
+       WHERE id = $11 RETURNING *`,
       [
-        poTercero,
-        tipoPersona,
         tipoIdentificacion,
-        identificacion,
+        numeroIdentificacion,
         nombreComercial,
-        tipoRegimen,
-        direccion,
-        ciudad,
         nombresContacto,
         apellidosContacto,
-        nombresContactoFacturacion,
-        apellidosContactoFacturacion,
+        direccion,
+        ciudad,
+        correoContactoFacturacion,
         telefonoFacturacion,
-        codigoPostal,
-        codigoSucursal,
-        nit,
-        dv,
         estado,
         id,
       ]
@@ -253,14 +210,12 @@ export const updateProvider = async (req, res) => {
     });
   } catch (error) {
     console.error('Error en updateProvider:', error);
-
     if (error.code === '23505') {
       return res.status(409).json({
         error: 'Conflicto',
         details: 'Ya existe un proveedor con estos datos únicos',
       });
     }
-
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message,
@@ -268,7 +223,7 @@ export const updateProvider = async (req, res) => {
   }
 };
 
-// Eliminar un proveedor
+// Eliminar un proveedor (sin cambios)
 export const deleteProvider = async (req, res) => {
   const { id } = req.params;
 
@@ -289,14 +244,12 @@ export const deleteProvider = async (req, res) => {
     });
   } catch (error) {
     console.error('Error en deleteProvider:', error);
-
     if (error.code === '23503') {
       return res.status(409).json({
         error: 'Conflicto de dependencia',
         details: 'Este proveedor no puede ser eliminado porque está referenciado en otras tablas',
       });
     }
-
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message,
