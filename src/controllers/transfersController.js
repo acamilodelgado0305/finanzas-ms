@@ -8,7 +8,7 @@ import {
 } from "../models/transfersModel.js";
 
 const createTransferController = async (req, res) => {
-  const { userId, fromAccountId, toAccountId, amount, vouchers, description } = req.body;
+  const { userId, fromAccount, toAccount, amount, vouchers, description } = req.body;
 
   try {
     // Convertir `vouchers` a un arreglo si es una cadena
@@ -20,8 +20,8 @@ const createTransferController = async (req, res) => {
 
     const transfer = await createTransfer(
       userId,
-      fromAccountId,
-      toAccountId,
+      fromAccount,
+      toAccount,
       amount,
       formattedVouchers,
       description
@@ -63,8 +63,8 @@ const updateTransferController = async (req, res) => {
   const { id } = req.params;
   const {
     userId,
-    fromAccountId,
-    toAccountId,
+    fromAccount,
+    toAccount,
     amount,
     date,
     vouchers,
@@ -74,8 +74,8 @@ const updateTransferController = async (req, res) => {
     const transfer = await updateTransfer(
       id,
       userId,
-      fromAccountId,
-      toAccountId,
+      fromAccount,
+      toAccount,
       amount,
       date,
       vouchers,

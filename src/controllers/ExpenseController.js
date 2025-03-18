@@ -166,7 +166,7 @@ export const getAllExpenses = async (req, res) => {
     const expensesQuery = `
       SELECT * 
       FROM expenses 
-      ORDER BY date DESC`; // Ordenar por fecha descendente para mostrar los más recientes primero
+      ORDER BY date DESC`;
 
     const expensesResult = await pool.query(expensesQuery);
     const expenses = expensesResult.rows;
@@ -181,9 +181,18 @@ export const getAllExpenses = async (req, res) => {
     const expensesWithItems = await Promise.all(
       expenses.map(async (expense) => {
         const itemsResult = await pool.query(expenseItemsQuery, [expense.id]);
+
+        // Convertir la fecha de UTC a la zona horaria local
+        const date = new Date(expense.date);
+        const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+
+        // Formatear la fecha a "yyyy-MM-dd HH:mm:ss"
+        const formattedDate = localDate.toISOString().slice(0, 19).replace("T", " ");
+
         return {
           ...expense,
-          items: itemsResult.rows, // Agregar los items al egreso
+          date: formattedDate,
+          items: itemsResult.rows,
         };
       })
     );
@@ -195,9 +204,6 @@ export const getAllExpenses = async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor', details: error.message });
   }
 };
-
-
-
 
 //---------------------------------------CREAR UN NUEVO GASTO-------------------------------//
 export const createExpense = async (req, res) => {
@@ -226,8 +232,8 @@ export const createExpense = async (req, res) => {
     // Procesar voucher
     const processedVoucher = voucher
       ? '{' + JSON.parse(voucher)
-          .map(v => `"${v.replace(/"/g, '\\"')}"`)
-          .join(',') + '}'
+        .map(v => `"${v.replace(/"/g, '\\"')}"`)
+        .join(',') + '}'
       : null;
 
     // Validar que la categoría exista si se proporciona
