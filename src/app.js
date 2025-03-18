@@ -11,6 +11,7 @@ import providerRoutes from './routes/Providers.js';
 import balanceRoutes from './routes/balanceRoutes.js'
 import accountingAccountsRoutes from './routes/accounting_accountsRoutes.js'
 import tercerosRouer from './routes/tercerosRouter.js'
+import RutasCajeros from "./routes/RutasCajero.js"
 
 const app = express();
 import dotenv from "dotenv";
@@ -24,6 +25,7 @@ app.use(
     origin: ["https://ispsuite.app.la-net.co", "http://localhost:5173"],
   })
 );
+
 app.use(express.json());
 
 // Middleware para manejar errores
@@ -46,7 +48,7 @@ app.use("/api", providerRoutes);
 app.use("/api", balanceRoutes);
 app.use("/api", accountingAccountsRoutes);
 app.use("/api", tercerosRouer);
-
+app.use("/api", RutasCajeros);
 
 // Iniciar el servidor
 app.listen(PORT, () => {

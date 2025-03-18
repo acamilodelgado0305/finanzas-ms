@@ -35,7 +35,7 @@ const createTransfer = async (
 
     // Registrar la transferencia
     const transferResult = await client.query(
-      "INSERT INTO transfers (user_id, from_account_id, to_account_id, amount,vouchers , description) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+      "INSERT INTO transfers (user_id, from_account, to_account, amount,vouchers , description) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
       [userId, fromAccountId, toAccountId, amount, vouchers, description]
     );
 
@@ -73,7 +73,7 @@ const updateTransfer = async (
   description
 ) => {
   const result = await pool.query(
-    `UPDATE transfers SET user_id = $1, from_account_id = $2, to_account_id = $3, amount = $4, date = $5, vouchers = $6, description = $7
+    `UPDATE transfers SET user_id = $1, from_account = $2, to_account = $3, amount = $4, date = $5, vouchers = $6, description = $7
      WHERE id = $8 RETURNING *`,
     [userId, fromAccountId, toAccountId, amount, date, vouchers, description, id]
   );
@@ -98,12 +98,12 @@ const deleteTransfer = async (id) => {
       throw new Error("Transferencia no encontrada");
     }
 
-    const { from_account_id, to_account_id, amount } = transfer;
+    const { from_account, to_account, amount } = transfer;
 
     // Revertir el débito en la cuenta de origen (devolver el dinero)
     const revertDebit = await client.query(
       "UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING *",
-      [amount, from_account_id]
+      [amount, from_account]
     );
 
     if (revertDebit.rowCount === 0) {
@@ -113,7 +113,7 @@ const deleteTransfer = async (id) => {
     // Revertir el crédito en la cuenta de destino (retirar el dinero)
     const revertCredit = await client.query(
       "UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING *",
-      [amount, to_account_id]
+      [amount, to_account]
     );
 
     if (revertCredit.rowCount === 0) {
