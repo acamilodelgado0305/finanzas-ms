@@ -6,7 +6,7 @@ import xlsx from 'xlsx';
 import {
   createExpense,
 
-} from '../controllers/ExpenseController.js';
+} from '../controllers/Expense/ExpenseController.js';
 
 // Endpoint para carga masiva
 export const bulkUploadIncomes = async (req, res) => {

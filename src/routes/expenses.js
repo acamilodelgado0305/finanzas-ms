@@ -7,12 +7,15 @@ import {
   getExpenseById,
   updateExpense,
   deleteExpense,
+} from '../controllers/Expense/ExpenseController.js';
+
+import {
   getExpenseVouchers,
   ExpenseManageVouchers,
   getExpensesWithFalseState,
   updateExpenseStatus,
   bulkUploadExpenses
-} from '../controllers/ExpenseController.js';
+} from '../controllers/Expense/funciones/ExpenseFunciones.js';
 
 const router = express.Router();
 
