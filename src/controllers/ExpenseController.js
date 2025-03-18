@@ -166,7 +166,7 @@ export const getAllExpenses = async (req, res) => {
     const expensesQuery = `
       SELECT * 
       FROM expenses 
-      ORDER BY date DESC`; // Ordenar por fecha descendente para mostrar los más recientes primero
+      ORDER BY date DESC`;
 
     const expensesResult = await pool.query(expensesQuery);
     const expenses = expensesResult.rows;
@@ -184,15 +184,15 @@ export const getAllExpenses = async (req, res) => {
 
         // Convertir la fecha de UTC a la zona horaria local
         const date = new Date(expense.date);
-        const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000); // Ajuste de zona horaria
+        const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
 
         // Formatear la fecha a "yyyy-MM-dd HH:mm:ss"
-        const formattedDate = localDate.toISOString().slice(0, 19).replace("T", " "); // "2025-03-18 01:00:57"
+        const formattedDate = localDate.toISOString().slice(0, 19).replace("T", " ");
 
         return {
           ...expense,
-          date: formattedDate, // Asignar la fecha formateada
-          items: itemsResult.rows, // Agregar los items al egreso
+          date: formattedDate,
+          items: itemsResult.rows,
         };
       })
     );
