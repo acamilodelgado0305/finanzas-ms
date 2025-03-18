@@ -27,16 +27,8 @@ export const getAllExpenses = async (req, res) => {
     const expensesWithItems = await Promise.all(
       expenses.map(async (expense) => {
         const itemsResult = await pool.query(expenseItemsQuery, [expense.id]);
-
-        // Convertir la fecha de UTC a la zona horaria local
-        const date = new Date(expense.date);
-        const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-
-     
-
         return {
           ...expense,
-          date: localDate,
           items: itemsResult.rows,
         };
       })
