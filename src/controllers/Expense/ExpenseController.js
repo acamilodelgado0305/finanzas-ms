@@ -147,10 +147,10 @@ export const createExpense = async (req, res) => {
     // Insertar items del gasto (con validación de categoría y nuevos campos)
     const insertItemQuery = `
       INSERT INTO expense_items (
-        id, expense_id, type, category, product_name, description,
+        id, expense_id, category, product_name, 
         quantity, unit_price, discount, total, tax_charge, tax_withholding
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`;
 
     const itemResults = [];
@@ -168,10 +168,8 @@ export const createExpense = async (req, res) => {
       const itemValues = [
         uuidv4(),
         expense.id,
-        item.type,
         itemCategoriaValue, // Categoría validada o NULL
         item.product,
-        item.description,
         item.quantity,
         item.unit_price,
         item.discount,
