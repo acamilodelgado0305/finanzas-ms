@@ -10,11 +10,19 @@ const pool = new Pool({
   host: process.env.DB_HOST,
   database: process.env.DB_DATABASE,
   password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT, 
+  port: process.env.DB_PORT,
+  // Agregar configuración de zona horaria
+  timezone: 'America/Bogota'
 });
 
-pool.on('connect', () => {
-  console.log('Conectado a la base de datos PostgreSQL');
+// Configurar la zona horaria al conectar
+pool.on('connect', async (client) => {
+  try {
+    await client.query("SET TIME ZONE 'America/Bogota';");
+    console.log('Conectado a la base de datos PostgreSQL con zona horaria America/Bogota');
+  } catch (err) {
+    console.error('Error al configurar la zona horaria:', err);
+  }
 });
 
 pool.on('error', (err) => {
@@ -22,11 +30,12 @@ pool.on('error', (err) => {
   process.exit(-1);
 });
 
-// Función para probar la conexión
+// Función para probar la conexión y verificar la zona horaria
 const testConnection = async () => {
   try {
-    await pool.query('SELECT NOW()');
+    const result = await pool.query('SELECT NOW() as current_time');
     console.log('Conexión exitosa a la base de datos PostgreSQL');
+    console.log('Hora actual en la base de datos:', result.rows[0].current_time);
   } catch (err) {
     console.error('Error probando la conexión con PostgreSQL', err);
   }
