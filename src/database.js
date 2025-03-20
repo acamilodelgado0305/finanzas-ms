@@ -11,15 +11,15 @@ const pool = new Pool({
   database: process.env.DB_DATABASE,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
-  // Agregar configuración de zona horaria
-  timezone: 'America/Bogota'
+  // Usar UTC en lugar de America/Bogota
+  timezone: 'UTC'
 });
 
 // Configurar la zona horaria al conectar
 pool.on('connect', async (client) => {
   try {
-    await client.query("SET TIME ZONE 'America/Bogota';");
-    console.log('Conectado a la base de datos PostgreSQL con zona horaria America/Bogota');
+    await client.query("SET TIME ZONE 'UTC';");
+    console.log('Conectado a la base de datos PostgreSQL con zona horaria UTC');
   } catch (err) {
     console.error('Error al configurar la zona horaria:', err);
   }
