@@ -8,22 +8,22 @@ import { parse, format, isValid, lastDayOfMonth } from "date-fns";
 // Obtener todos los gastos
 export const getAllExpenses = async (req, res) => {
   try {
-    // Consulta principal para obtener todos los egresos
     const expensesQuery = `
       SELECT * 
       FROM expenses 
       ORDER BY date DESC`;
 
     const expensesResult = await pool.query(expensesQuery);
-    const expenses = expensesResult.rows;
+    const expenses = expensesResult.rows.map(expense => ({
+      ...expense,
+      date: new Date(expense.date).toLocaleString('en-US', { timeZone: 'America/Bogota' })
+    }));
 
-    // Obtener los items relacionados para cada egreso
     const expenseItemsQuery = `
       SELECT * 
       FROM expense_items 
       WHERE expense_id = $1`;
 
-    // Iterar sobre cada egreso y obtener sus items
     const expensesWithItems = await Promise.all(
       expenses.map(async (expense) => {
         const itemsResult = await pool.query(expenseItemsQuery, [expense.id]);
@@ -34,7 +34,6 @@ export const getAllExpenses = async (req, res) => {
       })
     );
 
-    // Enviar la respuesta con los egresos y sus items
     res.json(expensesWithItems);
   } catch (error) {
     console.error('Error al obtener los gastos:', error);
