@@ -351,7 +351,7 @@ if (type === 'arqueo' && cashier_commission > 0) {
           type: 'commission',
           categoria: null, // Si no necesitas una categoría para el ítem, déjalo como null
           product: 'Comisión de Arqueo',
-          description: `Comisión de arqueo ${description || ''}`, // Descripción actualizada
+          description: `Comisión de arqueo ${egresoNumber || ''}`, // Descripción actualizada
           quantity: 1,
           unit_price: cashier_commission,
           discount: 0,
