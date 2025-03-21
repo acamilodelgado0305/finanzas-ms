@@ -159,9 +159,26 @@ export const bulkUploadIncomes = async (req, res) => {
 //--------------------------OBTENER TODOS LOS INGRESOS------------------------------//
 export const getAllIncomes = async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM incomes');
+    const query = `
+      SELECT 
+        id,
+        arqueo_number,
+        description,
+        account_id,
+        cashier_id,
+        amount,
+        TO_CHAR(date, 'MM/DD/YYYY HH24:MI:SS') AS date,
+        TO_CHAR(start_period, 'MM/DD/YYYY HH24:MI:SS') AS start_period,
+        TO_CHAR(end_period, 'MM/DD/YYYY HH24:MI:SS') AS end_period,
+        voucher,
+        type
+      FROM incomes
+      ORDER BY date DESC;
+    `;
+    const result = await pool.query(query);
     res.json(result.rows);
   } catch (error) {
+    console.error('Error al obtener los ingresos:', error);
     res.status(500).json({ error: 'Error al obtener los ingresos' });
   }
 };
