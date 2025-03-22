@@ -169,7 +169,7 @@ export const getAllIncomes = async (req, res) => {
         amount,
         TO_CHAR(date, 'DD/MM/YYYY HH24:MI:SS') AS date,
         TO_CHAR(start_period, 'DD/MM/YYYY HH24:MI:SS') AS start_period,
-        TO_CHAR(end_period, 'DD/MM//YYYY HH24:MI:SS') AS end_period,
+        TO_CHAR(end_period, 'DD/MM/YYYY HH24:MI:SS') AS end_period,
         voucher,
         type
       FROM incomes
