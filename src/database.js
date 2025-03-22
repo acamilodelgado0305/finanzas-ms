@@ -5,13 +5,17 @@ dotenv.config();
 
 const { Pool } = pkg;
 
+// Configuración para que pg no convierta automáticamente los tipos de datos timestamp
+const types = pkg.types;
+// Sobrescribir el parser de timestamp para evitar la conversión a UTC
+types.setTypeParser(1114, str => str); // 1114 es el OID para TIMESTAMP sin timezone
+
 const pool = new Pool({
   user: process.env.DB_USER,
   host: process.env.DB_HOST,
   database: process.env.DB_DATABASE,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
-  // Cambiar a zona horaria de Colombia
   timezone: 'America/Bogota'
 });
 
@@ -33,7 +37,7 @@ pool.on('error', (err) => {
 // Función para probar la conexión y verificar la zona horaria
 const testConnection = async () => {
   try {
-    const result = await pool.query('SELECT NOW() as current_time');
+    const result = await pool.query("SELECT TO_CHAR(NOW(), 'YYYY-MM-DD HH24:MI:SS') as current_time");
     console.log('Conexión exitosa a la base de datos PostgreSQL');
     console.log('Hora actual en la base de datos:', result.rows[0].current_time);
   } catch (err) {
