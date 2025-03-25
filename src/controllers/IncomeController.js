@@ -185,7 +185,6 @@ export const getAllIncomes = async (req, res) => {
 
 
 //----------------------------CREAR INGRESO---------------------------------------//
-
 export const createIncome = async (req, res) => {
   const client = await pool.connect();
   try {
@@ -209,7 +208,9 @@ export const createIncome = async (req, res) => {
       cashier_commission,
       start_period,
       end_period,
-      comentarios
+      comentarios,
+      amountcustom,
+      importes_personalizados,
     } = req.body;
 
     // Validación básica
@@ -282,17 +283,60 @@ export const createIncome = async (req, res) => {
       });
     }
 
+    // Validar y preparar importes_personalizados
+    let parsedImportesPersonalizados = [];
+    if (importes_personalizados) {
+      if (typeof importes_personalizados === 'string') {
+        try {
+          parsedImportesPersonalizados = JSON.parse(importes_personalizados);
+        } catch (e) {
+          return res.status(400).json({
+            error: 'Formato de importes_personalizados inválido',
+            details: 'El campo importes_personalizados debe ser un JSON válido'
+          });
+        }
+      } else if (Array.isArray(importes_personalizados)) {
+        parsedImportesPersonalizados = importes_personalizados;
+      } else {
+        return res.status(400).json({
+          error: 'Formato de importes_personalizados inválido',
+          details: 'El campo importes_personalizados debe ser un arreglo'
+        });
+      }
+
+      if (!parsedImportesPersonalizados.every(item => 
+        item && 
+        typeof item === 'object' && 
+        item.id_importe && 
+        item.producto && 
+        item.accion && 
+        typeof item.valor === 'number'
+      )) {
+        return res.status(400).json({
+          error: 'Formato de importes_personalizados inválido',
+          details: 'Cada elemento debe tener id_importe, producto, accion y valor (número)'
+        });
+      }
+    }
+
+    // Serializar explícitamente a string JSON para jsonb
+    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0 
+      ? JSON.stringify(parsedImportesPersonalizados) 
+      : null;
+
+    console.log("importes_personalizados enviado a PostgreSQL:", importesPersonalizadosJson);
+
     // Insertar el ingreso en la base de datos
     const createIncomeQuery = `
       INSERT INTO incomes (
         id,
-        user_id, 
-        account_id, 
-        category_id, 
-        amount, 
-        type, 
-        date, 
-        voucher, 
+        user_id,
+        account_id,
+        category_id,
+        amount,
+        type,
+        date,
+        voucher,
         description,
         estado,
         amountfev,
@@ -304,11 +348,14 @@ export const createIncome = async (req, res) => {
         cashier_commission,
         start_period,
         end_period,
-        comentarios
+        comentarios,
+        amountcustom,
+        importes_personalizados
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7::timestamp, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::date, $19::date, $20
-      ) 
+        $1, $2, $3, $4, $5, $6, $7::timestamp, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16,
+        $17, $18::date, $19::date, $20, $21, $22::jsonb
+      )
       RETURNING *`;
     const values = [
       uuidv4(),
@@ -330,7 +377,9 @@ export const createIncome = async (req, res) => {
       cashier_commission || null,
       start_period || null,
       end_period || null,
-      comentarios || null
+      comentarios || null,
+      amountcustom || null,
+      importesPersonalizadosJson, // Usar el string JSON serializado
     ];
     const result = await client.query(createIncomeQuery, values);
 
@@ -340,71 +389,62 @@ export const createIncome = async (req, res) => {
       data: result.rows[0]
     });
 
-
-    // Check if the income type is "arqueo" and if there's a cashier commission
-   // Check if the income type is "arqueo" and if there's a cashier commission
-if (type === 'arqueo' && cashier_commission > 0) {
-  try {
-    // Validar que arqueo_number esté definido
-    if (!arqueo_number) {
-      throw new Error('El número de arqueo no está definido.');
-    }
-
-    // Formatear el número de egreso como C-[numerodearqueo]
-    const egresoNumber = `C-${arqueo_number}`;
-
-    // Prepare the expense data based on the commission
-    const expenseData = {
-      user_id,
-      account_id,
-      tipo: 'commission', // Tipo específico para comisiones
-      date,
-      proveedor: cashier_id, // Asegúrate de que cashier_id sea un proveedor válido o usa null
-      categoria: null, // Si no necesitas una categoría para el egreso, déjalo como null
-      description: `Comisión de arqueo ${description || ''}`, // Descripción actualizada
-      estado: true, // Asegúrate de que este sea el estado deseado
-      expense_items: [
-        {
-          type: 'commission',
-          categoria: null, // Si no necesitas una categoría para el ítem, déjalo como null
-          product: 'Comisión de Arqueo',
-          description: `Comisión de arqueo ${egresoNumber || ''}`, // Descripción actualizada
-          quantity: 1,
-          unit_price: cashier_commission,
-          discount: 0,
-          total: cashier_commission, // Total explícito para el ítem
-          tax_charge: 0, // Impuestos cobrados (0 si no aplica)
-          tax_withholding: 0, // Retenciones (0 si no aplica)
+    // Lógica de comisión
+    if (type === 'arqueo' && cashier_commission > 0) {
+      try {
+        if (!arqueo_number) {
+          throw new Error('El número de arqueo no está definido.');
         }
-      ],
-      expense_totals: {
-        total_bruto: cashier_commission, // Total bruto
-        descuentos: 0, // Descuentos
-        subtotal: cashier_commission, // Subtotal
-        iva: 0, // Mapeado a ret_vat en createExpense
-        iva_percentage: 0, // Mapeado a ret_vat_percentage en createExpense
-        retencion: 0, // Mapeado a ret_ica en createExpense
-        retencion_percentage: 0, // Mapeado a ret_ica_percentage en createExpense
-        total_neto: cashier_commission, // Total neto
-        total_impuestos: 0, // Total de impuestos (suma de iva y retencion)
-      },
-      facturaNumber: egresoNumber, // Número de factura formateado
-      facturaProvNumber: null, // Número de factura del proveedor, si aplica
-      comentarios: `Comisión generada automáticamente para el arqueo ${description || ''}`, // Comentarios actualizados
-      voucher: null, // Sin comprobantes, si no se necesitan
-    };
-
-    // Call the createExpense function with the prepared data
-    const expenseClient = await pool.connect();
-    try {
-      await createExpense({ body: expenseData }, { status: () => { }, json: () => { } });
-    } finally {
-      expenseClient.release();
+        const egresoNumber = `C-${arqueo_number}`;
+        const expenseData = {
+          user_id,
+          account_id,
+          tipo: 'commission',
+          date,
+          proveedor: cashier_id,
+          categoria: null,
+          description: `Comisión de arqueo ${description || ''}`,
+          estado: true,
+          expense_items: [
+            {
+              type: 'commission',
+              categoria: null,
+              product: 'Comisión de Arqueo',
+              description: `Comisión de arqueo ${egresoNumber || ''}`,
+              quantity: 1,
+              unit_price: cashier_commission,
+              discount: 0,
+              total: cashier_commission,
+              tax_charge: 0,
+              tax_withholding: 0,
+            }
+          ],
+          expense_totals: {
+            total_bruto: cashier_commission,
+            descuentos: 0,
+            subtotal: cashier_commission,
+            iva: 0,
+            iva_percentage: 0,
+            retencion: 0,
+            retencion_percentage: 0,
+            total_neto: cashier_commission,
+            total_impuestos: 0,
+          },
+          facturaNumber: egresoNumber,
+          facturaProvNumber: null,
+          comentarios: `Comisión generada automáticamente para el arqueo ${description || ''}`,
+          voucher: null,
+        };
+        const expenseClient = await pool.connect();
+        try {
+          await createExpense({ body: expenseData }, { status: () => { }, json: () => { } });
+        } finally {
+          expenseClient.release();
+        }
+      } catch (expenseError) {
+        console.error('Error al crear el egreso por comisión:', expenseError);
+      }
     }
-  } catch (expenseError) {
-    console.error('Error al crear el egreso por comisión:', expenseError);
-  }
-}
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -421,6 +461,12 @@ if (type === 'arqueo' && cashier_commission > 0) {
         details: 'El formato de la fecha no es válido'
       });
     }
+    if (error.code === '22P02') {
+      return res.status(400).json({
+        error: 'Formato de JSON inválido',
+        details: `Error al parsear importes_personalizados: ${error.detail}`
+      });
+    }
     res.status(500).json({
       error: 'Error interno del servidor',
       details: error.message
@@ -429,6 +475,8 @@ if (type === 'arqueo' && cashier_commission > 0) {
     client.release();
   }
 };
+
+
 //---------------------------- OBTENER INGRESO POR ID------------------------------------//
 export const getIncomeById = async (req, res) => {
   const { id } = req.params;
@@ -469,6 +517,8 @@ export const updateIncome = async (req, res) => {
       end_period,
       comentarios
     } = req.body;
+
+    console.log("importes_personalizados recibido:", JSON.stringify(importes_personalizados, null, 2));
 
     // Validación básica
     if (!user_id || !account_id || !date) {
