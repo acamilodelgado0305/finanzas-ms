@@ -12,6 +12,7 @@ import balanceRoutes from './routes/balanceRoutes.js'
 import accountingAccountsRoutes from './routes/accounting_accountsRoutes.js'
 import tercerosRouer from './routes/tercerosRouter.js'
 import RutasCajeros from "./routes/RutasCajero.js"
+import rutasgestion from "./routes/rutasgestion.js"
 
 const app = express();
 import dotenv from "dotenv";
@@ -49,6 +50,7 @@ app.use("/api", balanceRoutes);
 app.use("/api", accountingAccountsRoutes);
 app.use("/api", tercerosRouer);
 app.use("/api", RutasCajeros);
+app.use("/api", rutasgestion);
 
 // Iniciar el servidor
 app.listen(PORT, () => {
