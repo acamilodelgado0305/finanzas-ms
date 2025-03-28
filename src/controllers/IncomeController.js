@@ -504,6 +504,7 @@ export const updateIncome = async (req, res) => {
       amount,
       type,
       date,
+      voucher,
       description,
       estado,
       amountfev,
@@ -515,157 +516,125 @@ export const updateIncome = async (req, res) => {
       cashier_commission,
       start_period,
       end_period,
-      comentarios
+      comentarios,
+      amountcustom,
+      importes_personalizados = [], // Default to empty array if not provided
     } = req.body;
 
-    console.log("importes_personalizados recibido:", JSON.stringify(importes_personalizados, null, 2));
-
-    // Validación básica
-    if (!user_id || !account_id || !date) {
-      return res.status(400).json({
-        error: 'Campos requeridos faltantes',
-        details: 'Los campos user_id, account_id y date son obligatorios'
-      });
-    }
-
-    // Obtener el ingreso actual para calcular la diferencia en el balance
-    const currentIncomeQuery = 'SELECT amount, account_id FROM incomes WHERE id = $1';
-    const currentIncomeResult = await client.query(currentIncomeQuery, [id]);
-
-    if (currentIncomeResult.rows.length === 0) {
+    // Fetch existing income to calculate balance adjustment
+    const existingIncomeQuery = 'SELECT amount, account_id FROM incomes WHERE id = $1';
+    const existingResult = await client.query(existingIncomeQuery, [id]);
+    if (existingResult.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({
-        error: 'Ingreso no encontrado',
-        details: 'El ingreso especificado no existe'
-      });
+      return res.status(404).json({ error: 'Ingreso no encontrado' });
     }
+    const oldAmount = parseFloat(existingResult.rows[0].amount) || 0;
+    const oldAccountId = existingResult.rows[0].account_id;
 
-    const currentAmount = parseFloat(currentIncomeResult.rows[0].amount);
-    const oldAccountId = currentIncomeResult.rows[0].account_id;
-
-    // Verificar que la cuenta existe
+    // Validate account
     const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
     const accountResult = await client.query(accountQuery, [account_id]);
     if (accountResult.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'Cuenta inválida',
-        details: 'La cuenta especificada no existe'
-      });
+      return res.status(400).json({ error: 'Cuenta inválida' });
+    }
+    const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
+
+    // Adjust balance (subtract old amount, add new amount)
+    const balanceAdjustment = amount - oldAmount;
+    const newBalance = currentBalance + balanceAdjustment;
+    const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
+    await client.query(updateAccountQuery, [newBalance, account_id]);
+
+    // Process voucher
+    let parsedVoucher = [];
+    if (typeof voucher === 'string') {
+      parsedVoucher = JSON.parse(voucher);
+    } else if (Array.isArray(voucher)) {
+      parsedVoucher = voucher;
     }
 
-    // Validar categoría solo si fue proporcionada
-    if (category_id) {
-      const categoryQuery = 'SELECT id FROM categories WHERE id = $1';
-      const categoryResult = await client.query(categoryQuery, [category_id]);
-      if (categoryResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          error: 'Categoría inválida',
-          details: 'La categoría especificada no existe'
-        });
-      }
+    // Process importes_personalizados
+    let parsedImportesPersonalizados = [];
+    if (typeof importes_personalizados === 'string') {
+      parsedImportesPersonalizados = JSON.parse(importes_personalizados);
+    } else if (Array.isArray(importes_personalizados)) {
+      parsedImportesPersonalizados = importes_personalizados;
     }
+    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0 
+      ? JSON.stringify(parsedImportesPersonalizados) 
+      : null;
 
-    // Actualizar el balance de la cuenta si el monto cambió o la cuenta cambió
-    if (amount !== currentAmount || account_id !== oldAccountId) {
-      // Si la cuenta cambió, actualizar ambas cuentas
-      if (account_id !== oldAccountId) {
-        // Revertir el monto de la cuenta anterior
-        const oldAccountQuery = 'UPDATE accounts SET balance = balance - $1 WHERE id = $2';
-        await client.query(oldAccountQuery, [currentAmount, oldAccountId]);
+    console.log("importes_personalizados enviado a PostgreSQL:", importesPersonalizadosJson);
 
-        // Agregar el nuevo monto a la nueva cuenta
-        const newAccountQuery = 'UPDATE accounts SET balance = balance + $1 WHERE id = $2';
-        await client.query(newAccountQuery, [amount, account_id]);
-      } else {
-        // Si es la misma cuenta, solo actualizar la diferencia
-        const balanceDiff = amount - currentAmount;
-        const updateBalanceQuery = 'UPDATE accounts SET balance = balance + $1 WHERE id = $2';
-        await client.query(updateBalanceQuery, [balanceDiff, account_id]);
-      }
-    }
-
-    // Construir la consulta de actualización
-    const updateFields = [];
-    const values = [];
-    let parameterIndex = 1;
-
-    const fieldMappings = {
+    // Update income
+    const updateIncomeQuery = `
+      UPDATE incomes SET
+        user_id = $1,
+        account_id = $2,
+        category_id = $3,
+        amount = $4,
+        type = $5,
+        date = $6::timestamp,
+        voucher = $7::text[],
+        description = $8,
+        estado = $9,
+        amountfev = $10,
+        amountdiverse = $11,
+        cashier_id = $12,
+        arqueo_number = $13,
+        other_income = $14,
+        cash_received = $15,
+        cashier_commission = $16,
+        start_period = $17::date,
+        end_period = $18::date,
+        comentarios = $19,
+        amountcustom = $20,
+        importes_personalizados = $21::jsonb
+      WHERE id = $22
+      RETURNING *`;
+    const values = [
       user_id,
       account_id,
-      category_id,
+      category_id || null,
       amount,
-      type,
+      type || '',
       date,
-      description,
-      estado,
-      amountfev,
-      amountdiverse,
-      cashier_id,
-      arqueo_number,
-      other_income,
-      cash_received,
-      cashier_commission,
-      start_period,
-      end_period,
-      comentarios
-    };
-
-    for (const [field, value] of Object.entries(fieldMappings)) {
-      if (value !== undefined) {
-        updateFields.push(`${field} = $${parameterIndex}`);
-        values.push(value);
-        parameterIndex++;
-      }
-    }
-
-    values.push(id);
-
-    const updateQuery = `
-      UPDATE incomes 
-      SET ${updateFields.join(', ')}
-      WHERE id = $${parameterIndex}
-      RETURNING *
-    `;
-
-    const result = await client.query(updateQuery, values);
+      parsedVoucher,
+      description || '',
+      estado || false,
+      amountfev || null,
+      amountdiverse || null,
+      cashier_id || null,
+      arqueo_number || null,
+      other_income || null,
+      cash_received || null,
+      cashier_commission || null,
+      start_period || null,
+      end_period || null,
+      comentarios || null,
+      amountcustom || null,
+      importesPersonalizadosJson,
+      id,
+    ];
+    const result = await client.query(updateIncomeQuery, values);
 
     await client.query('COMMIT');
     res.status(200).json({
       message: 'Ingreso actualizado exitosamente',
-      data: result.rows[0]
+      data: result.rows[0],
     });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error en updateIncome:', error);
-    if (error.code === '23505') {
-      return res.status(409).json({
-        error: 'Conflicto',
-        details: 'Ya existe un registro con estos datos'
-      });
-    }
-    if (error.code === '22007') {
-      return res.status(400).json({
-        error: 'Formato de fecha inválido',
-        details: 'El formato de la fecha no es válido'
-      });
-    }
-    if (error.code === '23503') {
-      return res.status(400).json({
-        error: 'Error de referencia',
-        details: 'Una o más referencias (user_id, account_id, category_id) no existen'
-      });
-    }
     res.status(500).json({
       error: 'Error interno del servidor',
-      details: error.message
+      details: error.message,
     });
   } finally {
     client.release();
   }
 };
-
 
 // -----------------------------------------ELIMINAR UN INGRESO----------------------------------------//
 export const deleteIncome = async (req, res) => {
