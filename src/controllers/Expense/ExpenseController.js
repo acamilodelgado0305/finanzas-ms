@@ -43,6 +43,10 @@ export const getAllExpenses = async (req, res) => {
 };
 
 //---------------------------------------CREAR UN NUEVO GASTO-------------------------------//
+
+  // Configuración de tu base de datos
+
+
 export const createExpense = async (req, res) => {
   const client = await pool.connect();
 
@@ -55,10 +59,10 @@ export const createExpense = async (req, res) => {
       tipo,
       date,
       proveedor,
-      categoria, // Usada para expenses
+      categoria, // Usada para expenses, ahora es el nombre de la categoría
       description,
       estado,
-      expense_items, // Cada item debe incluir su propia 'categoria'
+      expense_items, // Cada item debe incluir su propia 'categoria' (también como nombre)
       expense_totals,
       facturaNumber,
       facturaProvNumber,
@@ -73,15 +77,8 @@ export const createExpense = async (req, res) => {
         .join(',') + '}'
       : null;
 
-    // Validar que la categoría exista si se proporciona
-    let categoriaValue = null;
-    if (categoria) {
-      const categoryCheck = await client.query('SELECT id FROM categories WHERE id = $1', [categoria]);
-      if (categoryCheck.rows.length === 0) {
-        throw new Error('La categoría proporcionada no existe');
-      }
-      categoriaValue = categoria;
-    }
+    // Usar el nombre de la categoría directamente, sin validar en la tabla categories
+    const categoriaValue = categoria || null; // Si no se proporciona, será null
 
     // Actualizar balance de cuenta
     const updateAccountQuery = `
@@ -103,7 +100,7 @@ export const createExpense = async (req, res) => {
       throw new Error('Saldo insuficiente en la cuenta');
     }
 
-    // Insertar gasto principal (con categoría validada)
+    // Insertar gasto principal (con categoría como nombre)
     const insertExpenseQuery = `
       INSERT INTO expenses (
         id, user_id, account_id, date, provider_id, category, description,
@@ -122,7 +119,7 @@ export const createExpense = async (req, res) => {
       account_id,
       date,
       proveedor,
-      categoriaValue, // Categoría del gasto principal, puede ser NULL
+      categoriaValue, // Usar el nombre de la categoría directamente
       description,
       estado,
       facturaNumber,
@@ -144,7 +141,7 @@ export const createExpense = async (req, res) => {
     const expenseResult = await client.query(insertExpenseQuery, expenseValues);
     const expense = expenseResult.rows[0];
 
-    // Insertar items del gasto (con validación de categoría y nuevos campos)
+    // Insertar items del gasto (con categoría como nombre)
     const insertItemQuery = `
       INSERT INTO expense_items (
         id, expense_id, category, product_name, 
@@ -155,27 +152,19 @@ export const createExpense = async (req, res) => {
 
     const itemResults = [];
     for (const item of expense_items) {
-      let itemCategoriaValue = null;
-
-      if (item.categoria) {
-        const itemCategoryCheck = await client.query('SELECT id FROM categories WHERE id = $1', [item.categoria]);
-        if (itemCategoryCheck.rows.length === 0) {
-          throw new Error(`La categoría del ítem "${item.product}" no existe`);
-        }
-        itemCategoriaValue = item.categoria;
-      }
+      const itemCategoriaValue = item.categoria || null; // Usar el nombre de la categoría directamente
 
       const itemValues = [
         uuidv4(),
         expense.id,
-        itemCategoriaValue, // Categoría validada o NULL
-        item.product,
-        item.quantity,
-        item.unit_price,
-        item.discount,
-        item.total, // Usamos el total enviado desde el frontend
-        item.tax_charge || 0, // Nuevo campo, con valor por defecto 0 si no se proporciona
-        item.tax_withholding || 0 // Nuevo campo, con valor por defecto 0 si no se proporciona
+        itemCategoriaValue, // Usar el nombre de la categoría directamente
+        item.product || item.product_name || null, // Nombre del producto
+        item.quantity || 0, // Cantidad
+        item.unitPrice || item.unit_price || 0, // Precio unitario
+        item.discount || 0, // Descuento
+        item.total || 0, // Total del ítem
+        item.taxCharge || item.tax_charge || 0, // Impuesto de cargo (IVA)
+        item.taxWithholding || item.tax_withholding || 0 // Impuesto de retención
       ];
 
       const itemResult = await client.query(insertItemQuery, itemValues);
