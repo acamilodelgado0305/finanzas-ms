@@ -371,7 +371,8 @@ export const updateIncome = async (req, res) => {
       cashier_commission,
       start_period,
       end_period,
-      comentarios
+      comentarios,
+      importes_personalizados, // Agregado aquí
     } = req.body;
 
     console.log("importes_personalizados recibido:", JSON.stringify(importes_personalizados, null, 2));
@@ -442,6 +443,47 @@ export const updateIncome = async (req, res) => {
       }
     }
 
+    // Validar y preparar importes_personalizados
+    let parsedImportesPersonalizados = [];
+    if (importes_personalizados !== undefined) { // Solo procesar si se proporciona
+      if (typeof importes_personalizados === 'string') {
+        try {
+          parsedImportesPersonalizados = JSON.parse(importes_personalizados);
+        } catch (e) {
+          return res.status(400).json({
+            error: 'Formato de importes_personalizados inválido',
+            details: 'El campo importes_personalizados debe ser un JSON válido'
+          });
+        }
+      } else if (Array.isArray(importes_personalizados)) {
+        parsedImportesPersonalizados = importes_personalizados;
+      } else {
+        return res.status(400).json({
+          error: 'Formato de importes_personalizados inválido',
+          details: 'El campo importes_personalizados debe ser un arreglo'
+        });
+      }
+
+      if (!parsedImportesPersonalizados.every(item => 
+        item && 
+        typeof item === 'object' && 
+        item.id_importe && 
+        item.producto && 
+        item.accion && 
+        typeof item.valor === 'number'
+      )) {
+        return res.status(400).json({
+          error: 'Formato de importes_personalizados inválido',
+          details: 'Cada elemento debe tener id_importe, producto, accion y valor (número)'
+        });
+      }
+    }
+
+    // Serializar a JSON para jsonb
+    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0 
+      ? JSON.stringify(parsedImportesPersonalizados) 
+      : null;
+
     // Construir la consulta de actualización
     const updateFields = [];
     const values = [];
@@ -465,7 +507,8 @@ export const updateIncome = async (req, res) => {
       cashier_commission,
       start_period,
       end_period,
-      comentarios
+      comentarios,
+      importes_personalizados: importesPersonalizadosJson, // Agregar al mapeo
     };
 
     for (const [field, value] of Object.entries(fieldMappings)) {
@@ -511,6 +554,12 @@ export const updateIncome = async (req, res) => {
       return res.status(400).json({
         error: 'Error de referencia',
         details: 'Una o más referencias (user_id, account_id, category_id) no existen'
+      });
+    }
+    if (error.code === '22P02') {
+      return res.status(400).json({
+        error: 'Formato de JSON inválido',
+        details: `Error al parsear importes_personalizados: ${error.detail}`
       });
     }
     res.status(500).json({
