@@ -8,8 +8,6 @@ import {
 
 } from '../Expense/ExpenseController.js';
 
-// Endpoint para carga masiva
-
 
 
 //--------------------------OBTENER TODOS LOS INGRESOS------------------------------//
@@ -66,7 +64,7 @@ export const createIncome = async (req, res) => {
       comentarios,
       amountcustom,
       importes_personalizados,
-      voucher 
+      voucher
     } = req.body;
 
     // Validación básica
@@ -160,12 +158,12 @@ export const createIncome = async (req, res) => {
         });
       }
 
-      if (!parsedImportesPersonalizados.every(item => 
-        item && 
-        typeof item === 'object' && 
-        item.id_importe && 
-        item.producto && 
-        item.accion && 
+      if (!parsedImportesPersonalizados.every(item =>
+        item &&
+        typeof item === 'object' &&
+        item.id_importe &&
+        item.producto &&
+        item.accion &&
         typeof item.valor === 'number'
       )) {
         return res.status(400).json({
@@ -176,8 +174,8 @@ export const createIncome = async (req, res) => {
     }
 
     // Serializar explícitamente a string JSON para jsonb
-    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0 
-      ? JSON.stringify(parsedImportesPersonalizados) 
+    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0
+      ? JSON.stringify(parsedImportesPersonalizados)
       : null;
 
     console.log("importes_personalizados enviado a PostgreSQL:", importesPersonalizadosJson);
@@ -464,12 +462,12 @@ export const updateIncome = async (req, res) => {
         });
       }
 
-      if (!parsedImportesPersonalizados.every(item => 
-        item && 
-        typeof item === 'object' && 
-        item.id_importe && 
-        item.producto && 
-        item.accion && 
+      if (!parsedImportesPersonalizados.every(item =>
+        item &&
+        typeof item === 'object' &&
+        item.id_importe &&
+        item.producto &&
+        item.accion &&
         typeof item.valor === 'number'
       )) {
         return res.status(400).json({
@@ -480,8 +478,8 @@ export const updateIncome = async (req, res) => {
     }
 
     // Serializar a JSON para jsonb
-    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0 
-      ? JSON.stringify(parsedImportesPersonalizados) 
+    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0
+      ? JSON.stringify(parsedImportesPersonalizados)
       : null;
 
     // Construir la consulta de actualización
