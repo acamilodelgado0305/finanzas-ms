@@ -8,7 +8,6 @@ import {
 
 } from '../controllers/Expense/ExpenseController.js';
 
-// Endpoint para carga masiva
 export const bulkUploadIncomes = async (req, res) => {
   const client = await pool.connect();
 
@@ -30,12 +29,20 @@ export const bulkUploadIncomes = async (req, res) => {
       return res.status(400).json({ error: 'El archivo está vacío' });
     }
 
-    // Obtener cuentas y categorías de la base de datos
+    // Obtener cuentas, categorías y cajeros de la base de datos
     const accounts = await client.query('SELECT id, name, balance FROM accounts');
     const categories = await client.query('SELECT id, name, type FROM categories');
+    const cajeros = await client.query('SELECT id_cajero, nombre FROM cajeros'); // Obtener cajeros
 
-    const accountMap = new Map(accounts.rows.map(a => [a.name.toLowerCase(), a.id]));
-    const categoryMap = new Map(categories.rows.map(c => [c.name.toLowerCase(), c.id]));
+    const accountMap = new Map(
+      accounts.rows.map(a => [a.name.trim().toLowerCase(), a.id])
+    );
+    const categoryMap = new Map(
+      categories.rows.map(c => [c.name.toLowerCase(), c.id])
+    );
+    const cashierMap = new Map(
+      cajeros.rows.map(c => [c.nombre.toLowerCase(), c.id_cajero]) // Usamos el nombre del cajero en minúsculas como clave
+    );
 
     const newIncomes = [];
 
@@ -66,13 +73,35 @@ export const bulkUploadIncomes = async (req, res) => {
       }
     };
 
-
     for (const row of rows) {
-      const accountId = accountMap.get(row.account?.toLowerCase());
-      const categoryId = categoryMap.get(row.category?.toLowerCase());
+      // Obtener accountId usando el nombre de la cuenta
+      const accountId = row.account && typeof row.account === 'string'
+        ? accountMap.get(row.account.trim().toLowerCase())
+        : null;
 
-      if (!accountId || !categoryId) {
-        throw new Error(`Cuenta o categoría no válidas en la fila: ${JSON.stringify(row)}`);
+      // Obtener categoryId usando el nombre de la categoría
+      const categoryId = row.category && typeof row.category === 'string'
+        ? categoryMap.get(row.category.trim().toLowerCase())
+        : null;
+
+      // Obtener cashierId usando el nombre del cajero
+      const cashierId = row.cashier_name && typeof row.cashier_name === 'string'
+        ? cashierMap.get(row.cashier_name.trim().toLowerCase())
+        : null;
+
+
+      if (!accountId || !categoryId || !cashierId) {
+        if (!accountId) {
+          console.error(`Cuenta no válida en la fila: ${JSON.stringify(row)}`);
+        }
+        if (!categoryId) {
+          console.error(`Categoría no válida en la fila: ${JSON.stringify(row)}`);
+        }
+        if (!cashierId) {
+          console.error(`Cajero no válido en la fila: ${JSON.stringify(row)}`);
+        }
+
+        throw new Error(`Cuenta, categoría o cajero no válidos en la fila: ${JSON.stringify(row)}`);
       }
 
       let formattedDate;
@@ -96,7 +125,7 @@ export const bulkUploadIncomes = async (req, res) => {
         id: uuidv4(),
         user_id: row.user_id,
         account_id: accountId,
-        category_id: categoryId,
+        category_id: categoryId || null,
         amount: parseFloat(row.amount),
         type: row.type || '',
         date: formattedDate, // Ahora en formato "YYYY-MM-DD"
@@ -105,14 +134,16 @@ export const bulkUploadIncomes = async (req, res) => {
         estado: row.estado || true,
         amountfev: parseFloat(row.amountfev) || 0,
         amountdiverse: parseFloat(row.amountdiverse) || 0,
-        cashier_id: row.cashier_id || null,
+        cashier_id: cashierId,
         arqueo_number: row.arqueo_number || null,
         other_income: row.other_income || null,
         cash_received: row.cash_received || null,
         cashier_commission: row.cashier_commission || null,
         start_period: formattedStartPeriod,
         end_period: formattedEndPeriod,
-        comentarios: row.comentarios || null
+        comentarios: row.comentarios || null,
+        amountcustom: row.amountcustom || null,
+        importes_personalizados: row.importes_personalizados || null, // Asegúrate de que este campo esté en el formato correcto
       };
 
       newIncomes.push(incomeData);
@@ -127,15 +158,16 @@ export const bulkUploadIncomes = async (req, res) => {
       const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
       await client.query(updateAccountQuery, [newBalance, accountId]);
     }
+
     // Insertar en la base de datos
     const insertQuery = `
       INSERT INTO incomes (
         id, user_id, account_id, category_id, amount, type, date, voucher, description, estado, amountfev, amountdiverse,
-        cashier_id, arqueo_number, other_income, cash_received, cashier_commission, start_period, end_period , comentarios
+        cashier_id, arqueo_number, other_income, cash_received, cashier_commission, start_period, end_period , comentarios, amountcustom, importes_personalizados
       ) VALUES 
       ${newIncomes.map(
       (_, i) =>
-        `($${i * 20 + 1}, $${i * 20 + 2}, $${i * 20 + 3}, $${i * 20 + 4}, $${i * 20 + 5}, $${i * 20 + 6}, $${i * 20 + 7}, $${i * 20 + 8}, $${i * 20 + 9}, $${i * 20 + 10}, $${i * 20 + 11}, $${i * 20 + 12}, $${i * 20 + 13}, $${i * 20 + 14}, $${i * 20 + 15}, $${i * 20 + 16}, $${i * 20 + 17}, $${i * 20 + 18}, $${i * 20 + 19}, $${i * 20 + 20})`
+        `($${i * 22 + 1}, $${i * 22 + 2}, $${i * 22 + 3}, $${i * 22 + 4}, $${i * 22 + 5}, $${i * 22 + 6}, $${i * 22 + 7}, $${i * 22 + 8}, $${i * 22 + 9}, $${i * 22 + 10}, $${i * 22 + 11}, $${i * 22 + 12}, $${i * 22 + 13}, $${i * 22 + 14}, $${i * 22 + 15}, $${i * 22 + 16}, $${i * 22 + 17}, $${i * 22 + 18}, $${i * 22 + 19}, $${i * 22 + 20}, $${i * 22 + 21}, $${i * 22 + 22})`
     ).join(', ')}`;
 
     const insertValues = newIncomes.flatMap(income => Object.values(income));
@@ -304,12 +336,12 @@ export const createIncome = async (req, res) => {
         });
       }
 
-      if (!parsedImportesPersonalizados.every(item => 
-        item && 
-        typeof item === 'object' && 
-        item.id_importe && 
-        item.producto && 
-        item.accion && 
+      if (!parsedImportesPersonalizados.every(item =>
+        item &&
+        typeof item === 'object' &&
+        item.id_importe &&
+        item.producto &&
+        item.accion &&
         typeof item.valor === 'number'
       )) {
         return res.status(400).json({
@@ -320,8 +352,8 @@ export const createIncome = async (req, res) => {
     }
 
     // Serializar explícitamente a string JSON para jsonb
-    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0 
-      ? JSON.stringify(parsedImportesPersonalizados) 
+    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0
+      ? JSON.stringify(parsedImportesPersonalizados)
       : null;
 
     console.log("importes_personalizados enviado a PostgreSQL:", importesPersonalizadosJson);
@@ -561,8 +593,8 @@ export const updateIncome = async (req, res) => {
     } else if (Array.isArray(importes_personalizados)) {
       parsedImportesPersonalizados = importes_personalizados;
     }
-    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0 
-      ? JSON.stringify(parsedImportesPersonalizados) 
+    const importesPersonalizadosJson = parsedImportesPersonalizados.length > 0
+      ? JSON.stringify(parsedImportesPersonalizados)
       : null;
 
     console.log("importes_personalizados enviado a PostgreSQL:", importesPersonalizadosJson);
