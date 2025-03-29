@@ -6,10 +6,14 @@ import {
   getIncomeById,
   updateIncome,
   deleteIncome,
+  
+} from "../controllers/Ingresos/IncomeController.js";
+
+import { 
   manageVouchers,
   getIncomeVouchers,
   bulkUploadIncomes
-} from "../controllers/IncomeController.js";
+ } from "../controllers/Ingresos/FuncionesAuxiliares/FuncionesAuxiliaresIngresos.js";
 
 const router = express.Router();
 

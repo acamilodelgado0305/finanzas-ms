@@ -70,12 +70,7 @@ export const createExpense = async (req, res) => {
       voucher
     } = req.body;
 
-    // Procesar voucher
-    const processedVoucher = voucher
-      ? '{' + JSON.parse(voucher)
-        .map(v => `"${v.replace(/"/g, '\\"')}"`)
-        .join(',') + '}'
-      : null;
+   
 
     // Usar el nombre de la categoría directamente, sin validar en la tabla categories
     const categoriaValue = categoria || null; // Si no se proporciona, será null
@@ -98,6 +93,25 @@ export const createExpense = async (req, res) => {
 
     if (accountResult.rows[0].balance < 0) {
       throw new Error('Saldo insuficiente en la cuenta');
+    }
+
+    let parsedVoucher = [];
+    if (typeof voucher === 'string') {
+      try {
+        parsedVoucher = JSON.parse(voucher);
+      } catch (e) {
+        return res.status(400).json({
+          error: 'Formato de comprobantes inválido',
+          details: 'El campo voucher debe ser un arreglo válido'
+        });
+      }
+    } else if (Array.isArray(voucher)) {
+      parsedVoucher = voucher;
+    } else {
+      return res.status(400).json({
+        error: 'Formato de comprobantes inválido',
+        details: 'El campo voucher debe ser un arreglo'
+      });
     }
 
     // Insertar gasto principal (con categoría como nombre)
@@ -125,7 +139,7 @@ export const createExpense = async (req, res) => {
       facturaNumber,
       facturaProvNumber,
       comentarios,
-      processedVoucher,
+      parsedVoucher,
       tipo,
       expense_totals.total_bruto,
       expense_totals.descuentos,
@@ -253,7 +267,6 @@ export const updateExpense = async (req, res) => {
       facturaNumber,
       facturaProvNumber,
       comentarios,
-      voucher
     } = req.body;
 
     // Validate required fields
@@ -289,8 +302,7 @@ export const updateExpense = async (req, res) => {
       categoriaValue = categoria;
     }
 
-    // Process voucher
-    const processedVoucher = voucher ? JSON.stringify(voucher) : null;
+
 
     // Handle account balance
     if (oldAccountId !== account_id) {
@@ -342,18 +354,17 @@ export const updateExpense = async (req, res) => {
         invoice_number = $8,
         provider_invoice_number = $9,
         comments = $10,
-        voucher = $11,
-        type = $12,
-        total_gross = $13,
-        discounts = $14,
-        subtotal = $15,
-        ret_vat = $16,
-        ret_vat_percentage = $17,
-        ret_ica = $18,
-        ret_ica_percentage = $19,
-        total_net = $20,
-        total_impuestos = $21
-      WHERE id = $22
+        type = $11,
+        total_gross = $12,
+        discounts = $13,
+        subtotal = $14,
+        ret_vat = $15,
+        ret_vat_percentage = $16,
+        ret_ica = $17,
+        ret_ica_percentage = $18,
+        total_net = $19,
+        total_impuestos = $20
+      WHERE id = $21
       RETURNING *`;
 
     const expenseValues = [
@@ -367,7 +378,6 @@ export const updateExpense = async (req, res) => {
       facturaNumber,
       facturaProvNumber,
       comentarios,
-      processedVoucher,
       tipo,
       expense_totals.total_bruto,
       expense_totals.descuentos,
