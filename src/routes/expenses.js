@@ -10,8 +10,8 @@ import {
 } from '../controllers/Expense/ExpenseController.js';
 
 import {
-  getExpenseVouchers,
-  ExpenseManageVouchers,
+  getVouchers,
+  manageVouchers,
   getExpensesWithFalseState,
   updateExpenseStatus,
   bulkUploadExpenses
@@ -26,8 +26,8 @@ router.get('/expenses/:id', getExpenseById);
 router.put('/expenses/:id', updateExpense);
 router.put('/expenses/:id/status', updateExpenseStatus);
 router.delete('/expenses/:id', deleteExpense);
-router.get('/expenses/:id/vouchers', getExpenseVouchers);
-router.patch('/expenses/:id/vouchers', ExpenseManageVouchers);
+router.get('/expenses/:id/vouchers', getVouchers);
+router.patch('/expenses/:id/vouchers', manageVouchers);
 
 // ✅ Nueva ruta para carga masiva
 router.post("/expenses/bulk-upload", upload.single("file"), async (req, res, next) => {

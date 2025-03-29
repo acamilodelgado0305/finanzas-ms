@@ -1,10 +1,12 @@
 import pool from '../../../database.js';
 import { v4 as uuidv4 } from 'uuid';
-import { setTimeout } from "timers/promises";
-import xlsx from 'xlsx';
 import { parse, format, isValid, lastDayOfMonth } from "date-fns";
+import { es } from "date-fns/locale";
+import xlsx from 'xlsx';
 
-export const bulkUploadExpenses = async (req, res) => {
+
+
+export const bulkUploadIncomes = async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -16,6 +18,7 @@ export const bulkUploadExpenses = async (req, res) => {
 
     console.log("✅ Archivo recibido, procesando...");
 
+    // Leer el archivo Excel desde el buffer
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = xlsx.utils.sheet_to_json(sheet);
@@ -24,36 +27,44 @@ export const bulkUploadExpenses = async (req, res) => {
       return res.status(400).json({ error: 'El archivo está vacío' });
     }
 
-    console.log("✅ Filas del archivo:", rows);
-
+    // Obtener cuentas, categorías y cajeros de la base de datos
     const accounts = await client.query('SELECT id, name, balance FROM accounts');
     const categories = await client.query('SELECT id, name, type FROM categories');
+    const cajeros = await client.query('SELECT id_cajero, nombre FROM cajeros'); // Obtener cajeros
 
-    const accountMap = new Map(accounts.rows.map(a => [a.name.toLowerCase(), a.id]));
-    const categoryMap = new Map(categories.rows.map(c => [a.name.toLowerCase(), c.id]));
+    const accountMap = new Map(
+      accounts.rows.map(a => [a.name.trim().toLowerCase(), a.id])
+    );
+    const categoryMap = new Map(
+      categories.rows.map(c => [c.name.toLowerCase(), c.id])
+    );
+    const cashierMap = new Map(
+      cajeros.rows.map(c => [c.nombre.toLowerCase(), c.id_cajero]) // Usamos el nombre del cajero en minúsculas como clave
+    );
 
-    console.log("✅ Mapeo de cuentas:", accountMap);
-    console.log("✅ Mapeo de categorías:", categoryMap);
-
-    const newExpenses = [];
+    const newIncomes = [];
 
     const processDate = (dateValue) => {
       try {
         let parsedDate;
 
         if (typeof dateValue === "number") {
-          const excelStartDate = new Date(1900, 0, dateValue - 1);
+          // Si la fecha viene en formato numérico de Excel
+          const excelStartDate = new Date(1900, 0, dateValue - 1);  // Excel empieza desde el 1 de enero de 1900
           parsedDate = excelStartDate;
         } else if (typeof dateValue === "string") {
+          // Si la fecha ya está en formato texto
           parsedDate = parse(dateValue, "dd/MM/yyyy", new Date());
         } else {
           throw new Error(`Formato de fecha no reconocido: ${dateValue}`);
         }
 
+        // Verificar si la fecha es válida
         if (!isValid(parsedDate)) {
           throw new Error(`Fecha inválida: ${dateValue}`);
         }
 
+        // Convertir a formato "YYYY-MM-DD" para PostgreSQL
         return format(parsedDate, "yyyy-MM-dd");
       } catch (error) {
         throw new Error(`Error en la conversión de fecha: ${dateValue} - ${error.message}`);
@@ -61,82 +72,107 @@ export const bulkUploadExpenses = async (req, res) => {
     };
 
     for (const row of rows) {
-      console.log("✅ Procesando fila:", row);
+      // Obtener accountId usando el nombre de la cuenta
+      const accountId = row.account && typeof row.account === 'string'
+        ? accountMap.get(row.account.trim().toLowerCase())
+        : null;
 
-      const accountId = accountMap.get(row.account_id?.toLowerCase());
-      const categoryId = categoryMap.get(row.category_id?.toLowerCase());
+      // Obtener categoryId usando el nombre de la categoría
+      const categoryId = row.category && typeof row.category === 'string'
+        ? categoryMap.get(row.category.trim().toLowerCase())
+        : null;
 
-      if (!accountId || !categoryId) {
-        throw new Error(`Cuenta o categoría no válidas en la fila: ${JSON.stringify(row)}`);
+      // Obtener cashierId usando el nombre del cajero
+      const cashierId = row.cashier_name && typeof row.cashier_name === 'string'
+        ? cashierMap.get(row.cashier_name.trim().toLowerCase())
+        : null;
+
+
+      if (!accountId || !categoryId || !cashierId) {
+        if (!accountId) {
+          console.error(`Cuenta no válida en la fila: ${JSON.stringify(row)}`);
+        }
+        if (!categoryId) {
+          console.error(`Categoría no válida en la fila: ${JSON.stringify(row)}`);
+        }
+        if (!cashierId) {
+          console.error(`Cajero no válido en la fila: ${JSON.stringify(row)}`);
+        }
+
+        throw new Error(`Cuenta, categoría o cajero no válidos en la fila: ${JSON.stringify(row)}`);
       }
 
       let formattedDate;
+      let formattedStartPeriod;
+      let formattedEndPeriod;
 
       try {
-        formattedDate = processDate(row.date);
+        // Procesar la fecha
+        formattedDate = processDate(row.date); // Procesa la fecha principal
+
+        // Procesar las fechas adicionales
+        formattedStartPeriod = row.start_period ? processDate(row.start_period) : null;
+        formattedEndPeriod = row.end_period ? processDate(row.end_period) : null;
+
       } catch (error) {
         throw new Error(`Error en la conversión de fecha en la fila: ${JSON.stringify(row)} - ${error.message}`);
       }
 
-      // Procesar voucher como un array limpio
-      const processedVoucher = row.voucher
-        ? row.voucher.split('\n').filter(v => v.trim())
-        : [];
-
-      const expenseData = {
+      // Agregar los nuevos campos a los ingresos
+      const incomeData = {
         id: uuidv4(),
         user_id: row.user_id,
         account_id: accountId,
-        category_id: categoryId,
-        base_total_net: parseFloat(row.base_total_net),
-        total_net: parseFloat(row.total_net),
+        category_id: categoryId || null,
+        amount: parseFloat(row.amount),
         type: row.type || '',
-        sub_type: row.sub_type || '',
-        date: formattedDate,
-        voucher: processedVoucher, // Esto ya es un array limpio
+        date: formattedDate, // Ahora en formato "YYYY-MM-DD"
+        voucher: row.voucher || null,
         description: row.description || '',
-        recurrent: row.recurrent || false,
-        tax_type: row.tax_type || null,
-        tax_percentage: parseFloat(row.tax_percentage) || 0,
-        tax_total_net: parseFloat(row.tax_total_net) || 0,
-        retention_type: row.retention_type || null,
-        retention_percentage: parseFloat(row.retention_percentage) || 0,
-        retention_total_net: parseFloat(row.retention_total_net) || 0,
-        timerecurrent: row.timerecurrent || 0,
         estado: row.estado || true,
-        provider_id: row.provider_id || null,
+        amountfev: parseFloat(row.amountfev) || 0,
+        amountdiverse: parseFloat(row.amountdiverse) || 0,
+        cashier_id: cashierId,
+        arqueo_number: row.arqueo_number || null,
+        other_income: row.other_income || null,
+        cash_received: row.cash_received || null,
+        cashier_commission: row.cashier_commission || null,
+        start_period: formattedStartPeriod,
+        end_period: formattedEndPeriod,
+        comentarios: row.comentarios || null,
+        amountcustom: row.amountcustom || null,
+        importes_personalizados: row.importes_personalizados || null, // Asegúrate de que este campo esté en el formato correcto
       };
 
-      newExpenses.push(expenseData);
+      newIncomes.push(incomeData);
 
-      if (expenseData.estado) {
-        const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
-        const accountResult = await client.query(accountQuery, [accountId]);
+      // Actualización del balance de la cuenta después de cada ingreso
+      const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
+      const accountResult = await client.query(accountQuery, [accountId]);
 
-        const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
-        const newBalance = currentBalance - expenseData.total_net;
+      const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
+      const newBalance = currentBalance + incomeData.amount; // Sumar el nuevo ingreso al balance actual
 
-        const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
-        await client.query(updateAccountQuery, [newBalance, accountId]);
-      }
+      const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
+      await client.query(updateAccountQuery, [newBalance, accountId]);
     }
 
+    // Insertar en la base de datos
     const insertQuery = `
-      INSERT INTO expenses (
-        id, user_id, account_id, category_id, base_total_net, total_net, type, sub_type, date, voucher, description,
-        recurrent, tax_type, tax_percentage, tax_total_net, retention_type, retention_percentage, retention_total_net,
-        timerecurrent, estado, provider_id
+      INSERT INTO incomes (
+        id, user_id, account_id, category_id, amount, type, date, voucher, description, estado, amountfev, amountdiverse,
+        cashier_id, arqueo_number, other_income, cash_received, cashier_commission, start_period, end_period , comentarios, amountcustom, importes_personalizados
       ) VALUES 
-      ${newExpenses.map(
-        (_, i) =>
-          `($${i * 21 + 1}, $${i * 21 + 2}, $${i * 21 + 3}, $${i * 21 + 4}, $${i * 21 + 5}, $${i * 21 + 6}, $${i * 21 + 7}, $${i * 21 + 8}, $${i * 21 + 9}, $${i * 21 + 10}, $${i * 21 + 11}, $${i * 21 + 12}, $${i * 21 + 13}, $${i * 21 + 14}, $${i * 21 + 15}, $${i * 21 + 16}, $${i * 21 + 17}, $${i * 21 + 18}, $${i * 21 + 19}, $${i * 21 + 20}, $${i * 21 + 21})`
-      ).join(', ')}`;
+      ${newIncomes.map(
+      (_, i) =>
+        `($${i * 22 + 1}, $${i * 22 + 2}, $${i * 22 + 3}, $${i * 22 + 4}, $${i * 22 + 5}, $${i * 22 + 6}, $${i * 22 + 7}, $${i * 22 + 8}, $${i * 22 + 9}, $${i * 22 + 10}, $${i * 22 + 11}, $${i * 22 + 12}, $${i * 22 + 13}, $${i * 22 + 14}, $${i * 22 + 15}, $${i * 22 + 16}, $${i * 22 + 17}, $${i * 22 + 18}, $${i * 22 + 19}, $${i * 22 + 20}, $${i * 22 + 21}, $${i * 22 + 22})`
+    ).join(', ')}`;
 
-    const insertValues = newExpenses.flatMap(expense => Object.values(expense));
+    const insertValues = newIncomes.flatMap(income => Object.values(income));
     await client.query(insertQuery, insertValues);
 
     await client.query('COMMIT');
-    res.status(201).json({ message: 'Egresos cargados exitosamente' });
+    res.status(201).json({ message: 'Ingresos cargados exitosamente' });
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -148,6 +184,7 @@ export const bulkUploadExpenses = async (req, res) => {
     client.release();
   }
 };
+
 
 
 export const manageVouchers = async (req, res) => {
@@ -167,7 +204,7 @@ export const manageVouchers = async (req, res) => {
     }
 
     // Obtener el registro actual
-    const getCurrentVouchersQuery = 'SELECT voucher FROM expenses WHERE id = $1';
+    const getCurrentVouchersQuery = 'SELECT voucher FROM incomes WHERE id = $1';
     const currentResult = await client.query(getCurrentVouchersQuery, [id]);
 
     if (currentResult.rows.length === 0) {
@@ -236,7 +273,7 @@ export const manageVouchers = async (req, res) => {
       .join(',') + '}';
 
     // Actualizar los vouchers en la base de datos
-    const updateQuery = 'UPDATE expenses SET voucher = $1::text[] WHERE id = $2 RETURNING *';
+    const updateQuery = 'UPDATE incomes SET voucher = $1::text[] WHERE id = $2 RETURNING *';
     const result = await client.query(updateQuery, [processedVouchers, id]);
 
     await client.query('COMMIT');
@@ -260,7 +297,7 @@ export const manageVouchers = async (req, res) => {
 };
 
 
-export const getVouchers = async (req, res) => {
+export const getIncomeVouchers = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -273,7 +310,7 @@ export const getVouchers = async (req, res) => {
     }
 
     // Consultar solo la columna voucher del ingreso específico
-    const query = 'SELECT voucher FROM expenses WHERE id = $1';
+    const query = 'SELECT voucher FROM incomes WHERE id = $1';
     const result = await pool.query(query, [id]);
 
     if (result.rows.length === 0) {
@@ -297,103 +334,3 @@ export const getVouchers = async (req, res) => {
     });
   }
 };
-
-
-  // OBTENER TODOS LOS GASTOS CON ESTADO FALSE
-export const getExpensesWithFalseState = async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM expenses WHERE estado = false');
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error al obtener los gastos con estado false:', error);
-    res.status(500).json({ error: 'Error al obtener los gastos con estado false' });
-  }
-};
-
-
-export const updateExpenseStatus = async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const { id } = req.params;
-    const { estado } = req.body;
-
-    if (estado === undefined) {
-      return res.status(400).json({
-        error: 'El estado es requerido',
-      });
-    }
-
-    await client.query('BEGIN');
-
-    // Recuperamos el gasto para obtener los detalles necesarios
-    const expenseQuery = `
-      SELECT total_net, account_id, estado 
-      FROM expenses 
-      WHERE id = $1
-    `;
-    const expenseResult = await client.query(expenseQuery, [id]);
-
-    if (expenseResult.rows.length === 0) {
-      throw new Error('Gasto no encontrado');
-    }
-
-    const expense = expenseResult.rows[0];
-
-    // Si el estado ya es igual al solicitado, no hacemos nada
-    if (expense.estado === estado) {
-      return res.status(200).json({
-        message: 'El estado del gasto ya está actualizado',
-        data: expense,
-      });
-    }
-
-    // Si el nuevo estado es true, descontamos el monto de la cuenta
-    if (estado) {
-      const updateAccountQuery = `
-        UPDATE accounts 
-        SET balance = balance - $1 
-        WHERE id = $2 
-        RETURNING balance
-      `;
-
-      const accountResult = await client.query(updateAccountQuery, [expense.total_net, expense.account_id]);
-
-      if (accountResult.rows.length === 0) {
-        throw new Error('Cuenta no encontrada');
-      }
-
-      if (accountResult.rows[0].balance < 0) {
-        throw new Error('Saldo insuficiente en la cuenta');
-      }
-    }
-
-    // Actualizamos el estado del gasto
-    const updateExpenseQuery = `
-      UPDATE expenses 
-      SET estado = $1 
-      WHERE id = $2 
-      RETURNING *
-    `;
-    const result = await client.query(updateExpenseQuery, [estado, id]);
-
-    await client.query('COMMIT');
-
-    res.status(200).json({
-      message: 'Estado del gasto actualizado exitosamente',
-      data: result.rows[0],
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error en updateExpenseStatus:', error);
-    res.status(500).json({
-      error: 'Error interno del servidor',
-      details: error.message,
-    });
-  } finally {
-    client.release();
-  }
-};
-
-
-  
