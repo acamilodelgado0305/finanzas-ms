@@ -193,7 +193,9 @@ export const manageVouchers = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const { id, action, vouchers } = req.body;
+    // Obtener el id de los parámetros de la URL
+    const id = req.params.id; // Cambiado de req.body a req.params.id
+    const { action, vouchers } = req.body; // action y vouchers siguen viniendo del cuerpo
 
     // Validar que el id existe
     if (!id) {
@@ -220,7 +222,6 @@ export const manageVouchers = async (req, res) => {
 
     switch (action) {
       case 'add':
-        // Validar que se proporcionaron vouchers para agregar
         if (!vouchers || !Array.isArray(vouchers)) {
           await client.query('ROLLBACK');
           return res.status(400).json({
@@ -228,12 +229,10 @@ export const manageVouchers = async (req, res) => {
             details: 'Se deben proporcionar vouchers para agregar'
           });
         }
-        // Agregar nuevos vouchers al array existente
         updatedVouchers = [...currentVouchers, ...vouchers];
         break;
 
       case 'remove':
-        // Validar que se proporcionaron vouchers para eliminar
         if (!vouchers || !Array.isArray(vouchers)) {
           await client.query('ROLLBACK');
           return res.status(400).json({
@@ -241,12 +240,10 @@ export const manageVouchers = async (req, res) => {
             details: 'Se deben proporcionar vouchers para eliminar'
           });
         }
-        // Filtrar los vouchers que no están en la lista para eliminar
         updatedVouchers = currentVouchers.filter(v => !vouchers.includes(v));
         break;
 
       case 'update':
-        // Validar que se proporcionó el nuevo array de vouchers
         if (!vouchers || !Array.isArray(vouchers)) {
           await client.query('ROLLBACK');
           return res.status(400).json({
@@ -254,7 +251,6 @@ export const manageVouchers = async (req, res) => {
             details: 'Se debe proporcionar el nuevo array de vouchers'
           });
         }
-        // Reemplazar completamente el array de vouchers
         updatedVouchers = vouchers;
         break;
 
