@@ -14,8 +14,6 @@ export const bulkUploadExpenses = async (req, res) => {
       return res.status(400).json({ error: 'No se subió ningún archivo' });
     }
 
-    console.log("✅ Archivo recibido, procesando...");
-
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = xlsx.utils.sheet_to_json(sheet);
@@ -24,16 +22,26 @@ export const bulkUploadExpenses = async (req, res) => {
       return res.status(400).json({ error: 'El archivo está vacío' });
     }
 
-    console.log("✅ Filas del archivo:", rows);
+    // Obtener cuentas, categorías y proveedores de la base de datos
+    const accounts = await client.query('SELECT id, name FROM accounts');
+    const categories = await client.query('SELECT id, name FROM categories');
+    const providers = await client.query('SELECT id, nombre_comercial FROM proveedores');
 
-    const accounts = await client.query('SELECT id, name, balance FROM accounts');
-    const categories = await client.query('SELECT id, name, type FROM categories');
+    if (accounts.rows.length === 0 || categories.rows.length === 0 || providers.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No se encontraron cuentas, categorías o proveedores' });
+    }
 
-    const accountMap = new Map(accounts.rows.map(a => [a.name.toLowerCase(), a.id]));
-    const categoryMap = new Map(categories.rows.map(c => [a.name.toLowerCase(), c.id]));
-
-    console.log("✅ Mapeo de cuentas:", accountMap);
-    console.log("✅ Mapeo de categorías:", categoryMap);
+    // Crear mapeos de cuentas, categorías y proveedores
+    const accountMap = new Map(
+      accounts.rows.map(a => [a.name.trim().toLowerCase(), a.id])
+    );
+    const categoryMap = new Map(
+      categories.rows.map(c => [c.name.trim().toLowerCase(), c.id])
+    );
+    const providerMap = new Map(
+      providers.rows.map(p => [p.nombre_comercial.trim().toLowerCase(), p.id]) // Mapeo de nombre_comercial en minúsculas
+    );
 
     const newExpenses = [];
 
@@ -42,18 +50,22 @@ export const bulkUploadExpenses = async (req, res) => {
         let parsedDate;
 
         if (typeof dateValue === "number") {
-          const excelStartDate = new Date(1900, 0, dateValue - 1);
+          // Si la fecha viene en formato numérico de Excel
+          const excelStartDate = new Date(1900, 0, dateValue - 1);  // Excel empieza desde el 1 de enero de 1900
           parsedDate = excelStartDate;
         } else if (typeof dateValue === "string") {
+          // Si la fecha ya está en formato texto
           parsedDate = parse(dateValue, "dd/MM/yyyy", new Date());
         } else {
           throw new Error(`Formato de fecha no reconocido: ${dateValue}`);
         }
 
+        // Verificar si la fecha es válida
         if (!isValid(parsedDate)) {
           throw new Error(`Fecha inválida: ${dateValue}`);
         }
 
+        // Convertir a formato "YYYY-MM-DD" para PostgreSQL
         return format(parsedDate, "yyyy-MM-dd");
       } catch (error) {
         throw new Error(`Error en la conversión de fecha: ${dateValue} - ${error.message}`);
@@ -61,76 +73,94 @@ export const bulkUploadExpenses = async (req, res) => {
     };
 
     for (const row of rows) {
-      console.log("✅ Procesando fila:", row);
 
-      const accountId = accountMap.get(row.account_id?.toLowerCase());
-      const categoryId = categoryMap.get(row.category_id?.toLowerCase());
+      // Obtener accountId usando el nombre de la cuenta
+      const accountId = row.account && typeof row.account === 'string'
+        ? accountMap.get(row.account.trim().toLowerCase())
+        : null;
+
+      // Obtener categoryId usando el nombre de la categoría
+      const categoryId = row.category && typeof row.category === 'string'
+        ? categoryMap.get(row.category.trim().toLowerCase())
+        : null;
+
+      // Obtener providerId usando el nombre comercial
+      const providerName = row.provider_id && typeof row.provider_id === 'string'
+        ? row.provider_id.trim().toLowerCase()
+        : null;
+
+      console.log("Buscando proveedor:", providerName);
+
+      const providerId = providerMap.get(providerName);
+      // Verifica que el providerId esté bien asignado
+      if (!providerId) {
+        console.error(`Proveedor no encontrado: ${providerName}`);
+        throw new Error(`Proveedor no válido en la fila: ${JSON.stringify(row)}`);
+      }
 
       if (!accountId || !categoryId) {
-        throw new Error(`Cuenta o categoría no válidas en la fila: ${JSON.stringify(row)}`);
+        if (!accountId) {
+          console.error(`Cuenta no válida en la fila: ${JSON.stringify(row)}`);
+        }
+        if (!categoryId) {
+          console.error(`Categoría no válida en la fila: ${JSON.stringify(row)}`);
+        }
+
+        throw new Error(`Cuenta o categoría no válidos en la fila: ${JSON.stringify(row)}`);
       }
 
       let formattedDate;
-
       try {
-        formattedDate = processDate(row.date);
+        formattedDate = processDate(row.date); // Procesar la fecha
       } catch (error) {
         throw new Error(`Error en la conversión de fecha en la fila: ${JSON.stringify(row)} - ${error.message}`);
       }
 
       // Procesar voucher como un array limpio
-      const processedVoucher = row.voucher
-        ? row.voucher.split('\n').filter(v => v.trim())
-        : [];
+      const processedVoucher = row.voucher ? row.voucher.split('\n').filter(v => v.trim()) : [];
 
+      // Preparar el objeto de gastos
       const expenseData = {
         id: uuidv4(),
         user_id: row.user_id,
         account_id: accountId,
-        category_id: categoryId,
-        base_total_net: parseFloat(row.base_total_net),
-        total_net: parseFloat(row.total_net),
-        type: row.type || '',
-        sub_type: row.sub_type || '',
-        date: formattedDate,
-        voucher: processedVoucher, // Esto ya es un array limpio
+        category: categoryId,
         description: row.description || '',
-        recurrent: row.recurrent || false,
-        tax_type: row.tax_type || null,
-        tax_percentage: parseFloat(row.tax_percentage) || 0,
-        tax_total_net: parseFloat(row.tax_total_net) || 0,
-        retention_type: row.retention_type || null,
-        retention_percentage: parseFloat(row.retention_percentage) || 0,
-        retention_total_net: parseFloat(row.retention_total_net) || 0,
-        timerecurrent: row.timerecurrent || 0,
         estado: row.estado || true,
-        provider_id: row.provider_id || null,
+        invoice_number: row.invoice_number || null,
+        provider_invoice_number: row.provider_invoice_number || null,
+        comments: row.comments || null,
+        type: row.type || '',
+        total_gross: parseFloat(row.base_amount) || 0,  // Usamos base_amount como total_gross
+        discounts: parseFloat(row.discount) || 0,  // Asume que hay un campo de descuento en el archivo
+        subtotal: parseFloat(row.subtotal) || 0,  // Asume que hay un campo de subtotal
+        ret_vat: parseFloat(row.tax_amount) || 0,  // Usamos tax_amount como ret_vat
+        ret_vat_percentage: parseFloat(row.tax_percentage) || 0,
+        ret_ica: parseFloat(row.retention_total_net) || 0,  // Asume que hay un campo para ret_ica
+        ret_ica_percentage: parseFloat(row.retention_percentage) || 0,
+        total_net: parseFloat(row.amount) || 0,
+        total_impuestos: parseFloat(row.tax_amount) || 0,  // Asume que los impuestos vienen en tax_amount
+        provider_id: providerId, // Aquí estamos usando el ID del proveedor
+        date: formattedDate,
       };
 
       newExpenses.push(expenseData);
-
-      if (expenseData.estado) {
-        const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
-        const accountResult = await client.query(accountQuery, [accountId]);
-
-        const currentBalance = parseFloat(accountResult.rows[0].balance) || 0;
-        const newBalance = currentBalance - expenseData.total_net;
-
-        const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
-        await client.query(updateAccountQuery, [newBalance, accountId]);
-      }
     }
 
+    // Inserción masiva de los gastos en la base de datos
     const insertQuery = `
       INSERT INTO expenses (
-        id, user_id, account_id, category_id, base_total_net, total_net, type, sub_type, date, voucher, description,
-        recurrent, tax_type, tax_percentage, tax_total_net, retention_type, retention_percentage, retention_total_net,
-        timerecurrent, estado, provider_id
+        id, user_id, account_id, category, description, estado, invoice_number, provider_invoice_number, comments,
+        type, total_gross, discounts, subtotal, ret_vat, ret_vat_percentage, ret_ica, ret_ica_percentage,
+        total_net, total_impuestos, provider_id, date
       ) VALUES 
       ${newExpenses.map(
-        (_, i) =>
-          `($${i * 21 + 1}, $${i * 21 + 2}, $${i * 21 + 3}, $${i * 21 + 4}, $${i * 21 + 5}, $${i * 21 + 6}, $${i * 21 + 7}, $${i * 21 + 8}, $${i * 21 + 9}, $${i * 21 + 10}, $${i * 21 + 11}, $${i * 21 + 12}, $${i * 21 + 13}, $${i * 21 + 14}, $${i * 21 + 15}, $${i * 21 + 16}, $${i * 21 + 17}, $${i * 21 + 18}, $${i * 21 + 19}, $${i * 21 + 20}, $${i * 21 + 21})`
-      ).join(', ')}`;
+      (_, i) =>
+        `($${i * 21 + 1}, $${i * 21 + 2}, $${i * 21 + 3}, $${i * 21 + 4}, $${i * 21 + 5}, $${i * 21 + 6}, 
+           $${i * 21 + 7}, $${i * 21 + 8}, $${i * 21 + 9}, $${i * 21 + 10}, $${i * 21 + 11}, $${i * 21 + 12}, 
+           $${i * 21 + 13}, $${i * 21 + 14}, $${i * 21 + 15}, $${i * 21 + 16}, $${i * 21 + 17}, $${i * 21 + 18}, 
+           $${i * 21 + 19}, $${i * 21 + 20}, $${i * 21 + 21})`
+    ).join(', ')}`;
 
     const insertValues = newExpenses.flatMap(expense => Object.values(expense));
     await client.query(insertQuery, insertValues);
@@ -299,7 +329,7 @@ export const getVouchers = async (req, res) => {
 };
 
 
-  // OBTENER TODOS LOS GASTOS CON ESTADO FALSE
+// OBTENER TODOS LOS GASTOS CON ESTADO FALSE
 export const getExpensesWithFalseState = async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM expenses WHERE estado = false');
@@ -396,4 +426,3 @@ export const updateExpenseStatus = async (req, res) => {
 };
 
 
-  
