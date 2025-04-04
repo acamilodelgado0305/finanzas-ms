@@ -1,24 +1,10 @@
-import pool from '../database.js';
 import { v4 as uuidv4 } from 'uuid';
-import Joi from 'joi';
-
-// Esquema de validación con Joi
-const providerSchema = Joi.object({
-  tipoIdentificacion: Joi.string().required(),
-  numeroIdentificacion: Joi.string().required(),
-  nombreComercial: Joi.string().required(),
-  nombresContacto: Joi.string().required(),
-  apellidosContacto: Joi.string().required(),
-  ciudad: Joi.string().required(),
-  direccion: Joi.string().required(),
-  correoContactoFacturacion: Joi.string().email().required(),
-  telefonoFacturacion: Joi.string().required(),
-  estado: Joi.string().valid('activo', 'inactivo').default('activo'),
-});
+import pool from '../../database.js';
+import { providerSchema } from '../../schemas/providerSchema.js';
 
 export const createProvider = async (req, res) => {
   try {
-    // Validar los datos de entrada con Joi
+    // Validar los datos con Joi
     const { error } = providerSchema.validate(req.body);
     if (error) {
       return res.status(400).json({
@@ -28,29 +14,52 @@ export const createProvider = async (req, res) => {
       });
     }
 
-    // Extraer los datos del cuerpo de la solicitud
+    // Extraer los datos de la solicitud
     const {
       tipoIdentificacion,
       numeroIdentificacion,
-      nombreComercial,
+      nombre,
       nombresContacto,
       apellidosContacto,
       ciudad,
       direccion,
-      correoContactoFacturacion,
-      telefonoFacturacion,
+      departamento,
+      descripcion,
+      telefono,
+      correo,
+      adjuntos, // Si hay adjuntos, los manejamos aquí
+      sitioweb,
+      medioPago,
       estado,
+      fechaVencimiento,
     } = req.body;
 
-    // Generar un UUID para el ID
+    // Archivos adjuntos procesados
+    const uploadedFiles = req.files || [];
+    let attachments = [];
+
+    // Si hay archivos subidos, agregarlos al array adjuntos
+    if (uploadedFiles.length > 0) {
+      attachments = uploadedFiles.map(file => ({
+        tipo: file.fieldname,
+        archivo: file.path, // Guardamos la ruta del archivo
+      }));
+    }
+
+    // Generar un UUID para el proveedor
     const id = uuidv4();
 
-    // Iniciar una transacción
+    // Convertir los arrays a JSON válidos
+    const telefonoJSON = JSON.stringify(telefono);  // Convertir el array de teléfonos a JSON
+    const correoJSON = JSON.stringify(correo);      // Convertir el array de correos a JSON
+    const adjuntosJSON = JSON.stringify(attachments); // Convertir los adjuntos a JSON
+
+    // Iniciar la transacción
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
-      // Insertar en la tabla proveedores
+      // Insertar el proveedor
       const proveedorQuery = `
         INSERT INTO proveedores (
           id,
@@ -60,28 +69,39 @@ export const createProvider = async (req, res) => {
           nombres_contacto,
           apellidos_contacto,
           direccion,
+          departamento,
           ciudad,
-          correo_contacto_facturacion,
-          telefono_facturacion,
-          estado
+          telefono,
+          correo,
+          adjuntos,
+          medio_pago,
+          sitioweb,
+          estado,
+          fecha_vencimiento
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *`;
+
       const proveedorValues = [
         id,
         tipoIdentificacion,
         numeroIdentificacion,
-        nombreComercial,
+        nombre,
         nombresContacto,
         apellidosContacto,
         direccion,
+        departamento,
         ciudad,
-        correoContactoFacturacion,
-        telefonoFacturacion,
+        telefonoJSON, // Usamos el JSON convertido
+        correoJSON,   // Usamos el JSON convertido
+        adjuntosJSON, // Usamos el JSON convertido
+        medioPago || 'Otro',
+        sitioweb || null,
         estado || 'activo',
+        fechaVencimiento || null
       ];
 
-      // Ejecutar la consulta para proveedores
+      // Ejecutar la consulta para insertar el proveedor
       const proveedorResult = await client.query(proveedorQuery, proveedorValues);
 
       // Insertar en la tabla terceros
@@ -89,20 +109,17 @@ export const createProvider = async (req, res) => {
         INSERT INTO terceros (id, nombre, tipo)
         VALUES ($1, $2, $3)
         RETURNING *`;
-      const terceroValues = [id, nombreComercial, 'proveedor'];
-      const terceroResult = await client.query(terceroQuery, terceroValues);
+
+      const terceroValues = [id, nombre, 'proveedor'];
+      await client.query(terceroQuery, terceroValues);
 
       // Confirmar la transacción
       await client.query('COMMIT');
 
-      // Respuesta exitosa
       res.status(201).json({
         success: true,
-        message: 'Proveedor y tercero creados exitosamente',
-        data: {
-          proveedor: proveedorResult.rows[0],
-          tercero: terceroResult.rows[0],
-        },
+        message: 'Proveedor creado exitosamente',
+        data: proveedorResult.rows[0],
       });
     } catch (error) {
       await client.query('ROLLBACK');
@@ -111,14 +128,7 @@ export const createProvider = async (req, res) => {
       client.release();
     }
   } catch (error) {
-    console.error('Error en createProvider:', error);
-    if (error.code === '23505') {
-      return res.status(409).json({
-        success: false,
-        error: 'Conflicto',
-        details: 'Ya existe un proveedor con estos datos',
-      });
-    }
+    console.error('Error al crear el proveedor:', error);
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',
@@ -127,17 +137,16 @@ export const createProvider = async (req, res) => {
   }
 };
 
-// Obtener todos los proveedores (sin cambios)
+// Obtener todos los proveedores
 export const getAllProviders = async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM proveedores');
-    res.json(result.rows);
+    res.json(result.rows);  // Se devolverán los proveedores con todos los campos, incluyendo los nuevos
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener los proveedores' });
   }
 };
-
-// Obtener un proveedor por ID (sin cambios)
+// Obtener un proveedor por ID
 export const getProviderById = async (req, res) => {
   const { id } = req.params;
   try {
@@ -151,20 +160,27 @@ export const getProviderById = async (req, res) => {
   }
 };
 
-// Actualizar un proveedor (sin cambios relevantes aquí, pero ajustado)
+
+// Actualizar un proveedor
 export const updateProvider = async (req, res) => {
   const { id } = req.params;
   const {
     tipoIdentificacion,
     numeroIdentificacion,
-    nombreComercial,
+    nombre,
     nombresContacto,
     apellidosContacto,
     ciudad,
     direccion,
-    correoContactoFacturacion,
-    telefonoFacturacion,
+    departamento,
+    telefono,
+    correo,
+    adjuntos,
+    sitioweb,
+    medioPago,
     estado,
+    fechaVencimiento,
+
   } = req.body;
 
   try {
@@ -176,22 +192,32 @@ export const updateProvider = async (req, res) => {
            nombres_contacto = $4,
            apellidos_contacto = $5,
            direccion = $6,
-           ciudad = $7,
-           correo_contacto_facturacion = $8,
-           telefono_facturacion = $9,
-           estado = $10
-       WHERE id = $11 RETURNING *`,
+           departamento = $7,
+           ciudad = $8,
+           telefono = $9,
+           correo = $10,
+           adjuntos = $11,
+           medio_pago = $12,
+           sitioweb = $13,
+           estado = $14,
+           fecha_vencimiento = $15,
+       WHERE id = $16 RETURNING *`,
       [
         tipoIdentificacion,
         numeroIdentificacion,
-        nombreComercial,
+        nombre,
         nombresContacto,
         apellidosContacto,
         direccion,
+        departamento,
         ciudad,
-        correoContactoFacturacion,
-        telefonoFacturacion,
-        estado,
+        telefono,
+        correo,
+        adjuntos,
+        medioPago || 'Otro',
+        sitioweb || null,
+        estado || 'activo',
+        fechaVencimiento || null,
         id,
       ]
     );
@@ -223,7 +249,7 @@ export const updateProvider = async (req, res) => {
   }
 };
 
-// Eliminar un proveedor (sin cambios)
+// Eliminar un proveedor
 export const deleteProvider = async (req, res) => {
   const { id } = req.params;
 
@@ -256,3 +282,4 @@ export const deleteProvider = async (req, res) => {
     });
   }
 };
+
