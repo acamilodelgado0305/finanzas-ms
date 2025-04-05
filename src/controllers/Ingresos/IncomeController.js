@@ -24,6 +24,7 @@ export const getAllIncomes = async (req, res) => {
         date,
         start_period,
         end_period,
+        cash_received,
         voucher,
         type
       FROM incomes
@@ -105,8 +106,8 @@ export const createIncome = async (req, res) => {
       categoryType = categoryResult.rows[0].type;
     }
 
-    // Actualizar el balance de la cuenta
-    const newBalance = currentBalance + amount;
+    // Actualizar el balance de la cuenta usando cash_received en lugar de amount
+    const newBalance = currentBalance + (parseFloat(cash_received) || 0);
     const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
     await client.query(updateAccountQuery, [newBalance, account_id]);
 
@@ -233,7 +234,7 @@ export const createIncome = async (req, res) => {
       end_period || null,
       comentarios || null,
       amountcustom || null,
-      importesPersonalizadosJson, // Usar el string JSON serializado
+      importesPersonalizadosJson,
     ];
     const result = await client.query(createIncomeQuery, values);
 

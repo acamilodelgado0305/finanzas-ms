@@ -5,11 +5,11 @@ export const getGeneralBalance = async (req, res) => {
   const client = await pool.connect();
 
   try {
-    // Verificar que la columna "amount" exista en la tabla "incomes"
+    // Verificar que la columna "cash_received" exista en la tabla "incomes"
     const checkIncomesColumnQuery = `
       SELECT column_name
       FROM information_schema.columns
-      WHERE table_name = 'incomes' AND column_name = 'amount';
+      WHERE table_name = 'incomes' AND column_name = 'cash_received';
     `;
     // Verificar que la columna "total_net" exista en la tabla "expenses"
     const checkExpensesColumnQuery = `
@@ -23,13 +23,13 @@ export const getGeneralBalance = async (req, res) => {
 
     if (incomesColumnResult.rows.length === 0 || expensesColumnResult.rows.length === 0) {
       return res.status(400).json({
-        error: 'Las tablas no tienen las columnas necesarias ("amount" o "total_net")'
+        error: 'Las tablas no tienen las columnas necesarias ("cash_received" o "total_net")'
       });
     }
 
-    // Obtener el total de ingresos
+    // Obtener el total de ingresos usando cash_received
     const totalIncomesQuery = `
-      SELECT COALESCE(SUM(amount), 0) as total_incomes
+      SELECT COALESCE(SUM(cash_received), 0) as total_incomes
       FROM incomes
       WHERE estado = true`;
     const incomesResult = await client.query(totalIncomesQuery);
@@ -78,11 +78,11 @@ export const getMonthlyBalance = async (req, res) => {
       return res.status(400).json({ error: 'Año o mes no son números válidos' });
     }
 
-    // Verificar que la columna "amount" exista en la tabla "incomes"
+    // Verificar que la columna "cash_received" exista en la tabla "incomes"
     const checkIncomesColumnQuery = `
       SELECT column_name
       FROM information_schema.columns
-      WHERE table_name = 'incomes' AND column_name = 'amount';
+      WHERE table_name = 'incomes' AND column_name = 'cash_received';
     `;
     // Verificar que la columna "total_net" exista en la tabla "expenses"
     const checkExpensesColumnQuery = `
@@ -96,13 +96,13 @@ export const getMonthlyBalance = async (req, res) => {
 
     if (incomesColumnResult.rows.length === 0 || expensesColumnResult.rows.length === 0) {
       return res.status(400).json({
-        error: 'Las tablas no tienen las columnas necesarias ("amount" o "total_net")'
+        error: 'Las tablas no tienen las columnas necesarias ("cash_received" o "total_net")'
       });
     }
 
-    // Obtener ingresos mensuales
+    // Obtener ingresos mensuales usando cash_received
     const totalIncomesQuery = `
-      SELECT COALESCE(SUM(amount), 0) as total_incomes
+      SELECT COALESCE(SUM(cash_received), 0) as total_incomes
       FROM incomes
       WHERE estado = true AND EXTRACT(YEAR FROM date) = $1 AND EXTRACT(MONTH FROM date) = $2
     `;
