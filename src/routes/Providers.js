@@ -6,7 +6,7 @@ import {
   getProviderById,
   updateProvider,
   deleteProvider
-} from '../controllers/Proveedores/ProviderController.js';
+} from '../controllers/Proveedores/providerController.js';
 
 import { manageAttachments } from '../controllers/Proveedores/funciones/manageAttachments.js';
 
