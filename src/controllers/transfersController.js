@@ -1,11 +1,4 @@
 import pool from '../database.js';
-import {
-  createTransfer,
-  getTransfers,
-  getTransferById,
-  updateTransfer,
-  deleteTransfer,
-} from "../models/transfersModel.js";
 
 const createTransferController = async (req, res) => {
   const { userId, fromAccount, toAccount, amount, vouchers, description } = req.body;
@@ -18,92 +11,86 @@ const createTransferController = async (req, res) => {
         ? vouchers
         : [];
 
-    const transfer = await createTransfer(
-      userId,
-      fromAccount,
-      toAccount,
-      amount,
-      formattedVouchers,
-      description
-    );
+    // Consulta directa para insertar una transferencia
+    const query = `
+      INSERT INTO transfers (user_id, from_account_id, to_account_id, amount, vouchers, description, date)
+      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+      RETURNING *;
+    `;
+    const values = [userId, fromAccount, toAccount, amount, formattedVouchers, description];
+    const result = await pool.query(query, values);
 
-    res.status(201).json(transfer);
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("Error creando transferencia", err);
-    res.status(500).json({ error: "Error creando transferencia" });
+    res.status(500).json({ error: "Error creando transferencia", details: err.message });
   }
 };
 
-
 const getTransfersController = async (req, res) => {
   try {
-    const transfers = await getTransfers();
-    res.status(200).json(transfers);
+    const query = 'SELECT * FROM transfers ORDER BY date DESC;';
+    const result = await pool.query(query);
+    res.status(200).json(result.rows);
   } catch (err) {
     console.error("Error obteniendo transferencias", err);
-    res.status(500).json({ error: "Error obteniendo transferencias" });
+    res.status(500).json({ error: "Error obteniendo transferencias", details: err.message });
   }
 };
 
 const getTransferByIdController = async (req, res) => {
   const { id } = req.params;
   try {
-    const transfer = await getTransferById(id);
-    if (!transfer) {
+    const query = 'SELECT * FROM transfers WHERE id = $1;';
+    const result = await pool.query(query, [id]);
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: "Transferencia no encontrada" });
     }
-    res.status(200).json(transfer);
+    res.status(200).json(result.rows[0]);
   } catch (err) {
     console.error("Error obteniendo transferencia", err);
-    res.status(500).json({ error: "Error obteniendo transferencia" });
+    res.status(500).json({ error: "Error obteniendo transferencia", details: err.message });
   }
 };
 
 const updateTransferController = async (req, res) => {
   const { id } = req.params;
-  const {
-    userId,
-    fromAccount,
-    toAccount,
-    amount,
-    date,
-    vouchers,
-    description,
-  } = req.body;
+  const { userId, fromAccount, toAccount, amount, date, vouchers, description } = req.body;
   try {
-    const transfer = await updateTransfer(
-      id,
-      userId,
-      fromAccount,
-      toAccount,
-      amount,
-      date,
-      vouchers,
-      description
-    );
-    if (!transfer) {
+    const query = `
+      UPDATE transfers
+      SET user_id = $1, from_account_id = $2, to_account_id = $3, amount = $4, date = $5, vouchers = $6, description = $7
+      WHERE id = $8
+      RETURNING *;
+    `;
+    const values = [userId, fromAccount, toAccount, amount, date || new Date(), vouchers, description, id];
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: "Transferencia no encontrada" });
     }
-    res.status(200).json(transfer);
+    res.status(200).json(result.rows[0]);
   } catch (err) {
     console.error("Error actualizando transferencia", err);
-    res.status(500).json({ error: "Error actualizando transferencia" });
+    res.status(500).json({ error: "Error actualizando transferencia", details: err.message });
   }
 };
 
 const deleteTransferController = async (req, res) => {
   const { id } = req.params;
   try {
-    const transfer = await deleteTransfer(id);
-    if (!transfer) {
+    const query = 'DELETE FROM transfers WHERE id = $1 RETURNING *;';
+    const result = await pool.query(query, [id]);
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: "Transferencia no encontrada" });
     }
-    res.status(200).json(transfer);
+    res.status(200).json(result.rows[0]);
   } catch (err) {
     console.error("Error eliminando transferencia", err);
-    res.status(500).json({ error: "Error eliminando transferencia" });
+    res.status(500).json({ error: "Error eliminando transferencia", details: err.message });
   }
 };
+
 const TransferManageVouchers = async (req, res) => {
   const client = await pool.connect();
 
