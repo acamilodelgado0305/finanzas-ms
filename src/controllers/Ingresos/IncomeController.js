@@ -371,7 +371,7 @@ export const updateIncome = async (req, res) => {
       start_period,
       end_period,
       comentarios,
-      importes_personalizados, // Agregado aquí
+      importes_personalizados,
     } = req.body;
 
     console.log("importes_personalizados recibido:", JSON.stringify(importes_personalizados, null, 2));
@@ -385,7 +385,7 @@ export const updateIncome = async (req, res) => {
     }
 
     // Obtener el ingreso actual para calcular la diferencia en el balance
-    const currentIncomeQuery = 'SELECT amount, account_id FROM incomes WHERE id = $1';
+    const currentIncomeQuery = 'SELECT cash_received, account_id FROM incomes WHERE id = $1'; // Cambiado de 'amount' a 'cash_received'
     const currentIncomeResult = await client.query(currentIncomeQuery, [id]);
 
     if (currentIncomeResult.rows.length === 0) {
@@ -396,10 +396,10 @@ export const updateIncome = async (req, res) => {
       });
     }
 
-    const currentAmount = parseFloat(currentIncomeResult.rows[0].amount);
+    const currentCashReceived = parseFloat(currentIncomeResult.rows[0].cash_received); // Cambiado de 'currentAmount' a 'currentCashReceived'
     const oldAccountId = currentIncomeResult.rows[0].account_id;
 
-    // Verificar que la cuenta existe
+    // Verificar que la cuenta existe y obtener el balance actual
     const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
     const accountResult = await client.query(accountQuery, [account_id]);
     if (accountResult.rows.length === 0) {
@@ -409,6 +409,8 @@ export const updateIncome = async (req, res) => {
         details: 'La cuenta especificada no existe'
       });
     }
+
+    const currentBalance = parseFloat(accountResult.rows[0].balance);
 
     // Validar categoría solo si fue proporcionada
     if (category_id) {
@@ -423,28 +425,35 @@ export const updateIncome = async (req, res) => {
       }
     }
 
-    // Actualizar el balance de la cuenta si el monto cambió o la cuenta cambió
-    if (amount !== currentAmount || account_id !== oldAccountId) {
+    // Actualizar el balance de la cuenta si cash_received cambió o la cuenta cambió
+    let newBalance = currentBalance; // Inicializamos el nuevo balance
+    if (cash_received !== undefined && (cash_received !== currentCashReceived || account_id !== oldAccountId)) {
       // Si la cuenta cambió, actualizar ambas cuentas
       if (account_id !== oldAccountId) {
         // Revertir el monto de la cuenta anterior
         const oldAccountQuery = 'UPDATE accounts SET balance = balance - $1 WHERE id = $2';
-        await client.query(oldAccountQuery, [currentAmount, oldAccountId]);
+        await client.query(oldAccountQuery, [currentCashReceived, oldAccountId]);
 
         // Agregar el nuevo monto a la nueva cuenta
         const newAccountQuery = 'UPDATE accounts SET balance = balance + $1 WHERE id = $2';
-        await client.query(newAccountQuery, [amount, account_id]);
+        await client.query(newAccountQuery, [cash_received, account_id]);
+
+        // Calcular el nuevo balance para la respuesta
+        newBalance = currentBalance + cash_received;
       } else {
         // Si es la misma cuenta, solo actualizar la diferencia
-        const balanceDiff = amount - currentAmount;
+        const balanceDiff = cash_received - currentCashReceived;
         const updateBalanceQuery = 'UPDATE accounts SET balance = balance + $1 WHERE id = $2';
         await client.query(updateBalanceQuery, [balanceDiff, account_id]);
+
+        // Calcular el nuevo balance para la respuesta
+        newBalance = currentBalance + balanceDiff;
       }
     }
 
     // Validar y preparar importes_personalizados
     let parsedImportesPersonalizados = [];
-    if (importes_personalizados !== undefined) { // Solo procesar si se proporciona
+    if (importes_personalizados !== undefined) {
       if (typeof importes_personalizados === 'string') {
         try {
           parsedImportesPersonalizados = JSON.parse(importes_personalizados);
@@ -507,7 +516,7 @@ export const updateIncome = async (req, res) => {
       start_period,
       end_period,
       comentarios,
-      importes_personalizados: importesPersonalizadosJson, // Agregar al mapeo
+      importes_personalizados: importesPersonalizadosJson,
     };
 
     for (const [field, value] of Object.entries(fieldMappings)) {
@@ -530,10 +539,24 @@ export const updateIncome = async (req, res) => {
     const result = await client.query(updateQuery, values);
 
     await client.query('COMMIT');
-    res.status(200).json({
+
+    // Preparar la respuesta
+    const response = {
       message: 'Ingreso actualizado exitosamente',
-      data: result.rows[0]
-    });
+      data: {
+        updatedIncome: result.rows[0],
+        accountId: account_id,
+        previousBalance: currentBalance,
+        newBalance: newBalance
+      }
+    };
+
+    // Si el nuevo balance es negativo, agregar un mensaje informativo
+    if (newBalance < 0) {
+      response.data.warning = 'El balance de la cuenta es ahora negativo';
+    }
+
+    res.status(200).json(response);
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error en updateIncome:', error);
@@ -600,7 +623,7 @@ export const deleteIncome = async (req, res) => {
     }
 
     const income = incomeResult.rows[0];
-    const { amount, account_id } = income;
+    const { cash_received, account_id } = income; // Cambiado de 'amount' a 'cash_received'
 
     // 2. Obtener el balance actual de la cuenta
     const accountQuery = 'SELECT balance FROM accounts WHERE id = $1';
@@ -616,19 +639,10 @@ export const deleteIncome = async (req, res) => {
 
     const currentBalance = parseFloat(accountResult.rows[0].balance);
 
-    // 3. Calcular y actualizar el nuevo balance
-    const newBalance = currentBalance - amount;
+    // 3. Calcular el nuevo balance usando cash_received
+    const newBalance = currentBalance - cash_received; // Cambiado de 'amount' a 'cash_received'
 
-    // Verificar que el nuevo balance no sea negativo (opcional, depende de tus reglas de negocio)
-    if (newBalance < 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'Balance insuficiente',
-        details: 'No se puede eliminar el ingreso porque dejaría la cuenta con balance negativo'
-      });
-    }
-
-    // 4. Actualizar el balance en la cuenta
+    // 4. Actualizar el balance en la cuenta (sin validar si es negativo)
     const updateAccountQuery = 'UPDATE accounts SET balance = $1 WHERE id = $2';
     await client.query(updateAccountQuery, [newBalance, account_id]);
 
@@ -639,7 +653,7 @@ export const deleteIncome = async (req, res) => {
     await client.query('COMMIT');
 
     // 6. Enviar respuesta con información completa
-    res.status(200).json({
+    const response = {
       message: 'Ingreso eliminado exitosamente',
       data: {
         deletedIncome: result.rows[0],
@@ -647,7 +661,14 @@ export const deleteIncome = async (req, res) => {
         previousBalance: currentBalance,
         newBalance: newBalance
       }
-    });
+    };
+
+    // Si el nuevo balance es negativo, agregar un mensaje informativo
+    if (newBalance < 0) {
+      response.data.warning = 'El balance de la cuenta es ahora negativo';
+    }
+
+    res.status(200).json(response);
 
   } catch (error) {
     await client.query('ROLLBACK');
