@@ -3,11 +3,17 @@ import express from 'express';
 
 import {
   getAllExpenses,
-  createExpense,
+
   getExpenseById,
   updateExpense,
   deleteExpense,
 } from '../controllers/Expense/ExpenseController.js';
+
+import {
+
+  createExpense,
+
+} from '../controllers/Expense/CreateExpense.js';
 
 import {
   getVouchers,

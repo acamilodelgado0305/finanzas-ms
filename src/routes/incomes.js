@@ -2,12 +2,15 @@ import express from "express";
 import upload from "../../config/multerConfig.js";
 import {
   getAllIncomes,
-  createIncome,
+
   getIncomeById,
   updateIncome,
   deleteIncome,
   
 } from "../controllers/Ingresos/IncomeController.js";
+import {
+  createIncome,
+} from "../controllers/Ingresos/CreateIncome.js";
 
 import { 
   manageVouchers,
