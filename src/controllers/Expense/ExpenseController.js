@@ -42,10 +42,6 @@ export const getAllExpenses = async (req, res) => {
   }
 };
 
-//---------------------------------------CREAR UN NUEVO GASTO-------------------------------//
-
-
-
 
 
 //------------------------OBETNER GASTO POR ID------------------------//
@@ -101,16 +97,17 @@ export const updateExpense = async (req, res) => {
       date,
       proveedor,
       categoria,
-      description, // This maps to the `description` column in the `expenses` table
+      description,
       estado,
       expense_items,
       expense_totals,
       facturaNumber,
       facturaProvNumber,
+      facturaProvPrefix, // Agregar facturaProvPrefix
       comentarios,
     } = req.body;
 
-    // Validate required fields
+    // Validar campos requeridos
     if (!account_id) {
       throw new Error('account_id is required');
     }
@@ -124,7 +121,7 @@ export const updateExpense = async (req, res) => {
       throw new Error('expense_items is required');
     }
 
-    // Get current expense
+    // Obtener el gasto actual
     const currentExpenseQuery = `
       SELECT total_net, account_id, category 
       FROM expenses 
@@ -137,15 +134,13 @@ export const updateExpense = async (req, res) => {
 
     const { total_net: oldTotalNet, account_id: oldAccountId, category: oldCategory } = currentExpenseResult.rows[0];
 
-    // Handle category (no validation needed since it's a varchar)
+    // Manejar categoría
     let categoriaValue = oldCategory;
     if (categoria && categoria !== oldCategory) {
       categoriaValue = categoria;
     }
 
-
-
-    // Handle account balance
+    // Manejar el balance de la cuenta
     if (oldAccountId !== account_id) {
       await client.query(
         'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
@@ -182,7 +177,7 @@ export const updateExpense = async (req, res) => {
       }
     }
 
-    // Update main expense (this part is fine, as `description` exists in the `expenses` table)
+    // Actualizar el gasto principal incluyendo provider_invoice_prefix
     const updateExpenseQuery = `
       UPDATE expenses SET 
         user_id = $1,
@@ -194,18 +189,19 @@ export const updateExpense = async (req, res) => {
         estado = $7,
         invoice_number = $8,
         provider_invoice_number = $9,
-        comments = $10,
-        type = $11,
-        total_gross = $12,
-        discounts = $13,
-        subtotal = $14,
-        ret_vat = $15,
-        ret_vat_percentage = $16,
-        ret_ica = $17,
-        ret_ica_percentage = $18,
-        total_net = $19,
-        total_impuestos = $20
-      WHERE id = $21
+        provider_invoice_prefix = $10,  -- Agregar provider_invoice_prefix
+        comments = $11,
+        type = $12,
+        total_gross = $13,
+        discounts = $14,
+        subtotal = $15,
+        ret_vat = $16,
+        ret_vat_percentage = $17,
+        ret_ica = $18,
+        ret_ica_percentage = $19,
+        total_net = $20,
+        total_impuestos = $21
+      WHERE id = $22
       RETURNING *`;
 
     const expenseValues = [
@@ -218,6 +214,7 @@ export const updateExpense = async (req, res) => {
       estado,
       facturaNumber,
       facturaProvNumber,
+      facturaProvPrefix || null, // Agregar facturaProvPrefix
       comentarios,
       tipo,
       expense_totals.total_bruto,
@@ -235,8 +232,7 @@ export const updateExpense = async (req, res) => {
     const expenseResult = await client.query(updateExpenseQuery, expenseValues);
     const expense = expenseResult.rows[0];
 
-    // Handle expense items
-    // Remove `description` from the SELECT query
+    // Manejar los ítems del gasto
     const currentItemsQuery = `
       SELECT id, category, product_name, quantity, unit_price, discount, total, tax_charge, tax_withholding 
       FROM expense_items 
@@ -246,7 +242,6 @@ export const updateExpense = async (req, res) => {
 
     const currentItemsMap = new Map(currentItems.map(item => [item.id, item]));
 
-    // Remove `description` from the INSERT query
     const insertItemQuery = `
       INSERT INTO expense_items (
         id, expense_id, category, product_name,
@@ -255,7 +250,6 @@ export const updateExpense = async (req, res) => {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`;
 
-    // Remove `description` from the UPDATE query
     const updateItemQuery = `
       UPDATE expense_items SET
         category = $1,
@@ -286,7 +280,7 @@ export const updateExpense = async (req, res) => {
       let itemCategoriaValue = item.categoria || null;
 
       if (item.id && currentItemsMap.has(item.id)) {
-        // Update existing item
+        // Actualizar ítem existente
         itemsToDelete.delete(item.id);
 
         const itemValues = [
@@ -304,7 +298,7 @@ export const updateExpense = async (req, res) => {
         const itemResult = await client.query(updateItemQuery, itemValues);
         itemResults.push(itemResult.rows[0]);
       } else {
-        // Insert new item
+        // Insertar nuevo ítem
         const itemValues = [
           uuidv4(),
           expense.id,
