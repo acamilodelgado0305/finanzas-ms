@@ -3,9 +3,18 @@ import Joi from 'joi';
 const providerSchema = Joi.object({
     tipoIdentificacion: Joi.string().required(),
     numeroIdentificacion: Joi.string().required(),
-    nombre: Joi.string().required(),
-    nombresContacto: Joi.string().required(),
-    apellidosContacto: Joi.string().required(),
+
+    // Hacer 'nombre' opcional, sin importar si el tipoIdentificacion es 'NIT' o 'CC'
+    nombre: Joi.string().optional(),  // Hacer 'nombre' opcional para ambos casos
+
+    nombreComercial: Joi.when('tipoIdentificacion', {
+        is: 'NIT',
+        then: Joi.string().required(), // Si es NIT, 'nombreComercial' es obligatorio
+        otherwise: Joi.string().optional(), // Si no es NIT, 'nombreComercial' es opcional
+    }),
+
+    nombresContacto: Joi.string().allow('').required(),
+    apellidosContacto: Joi.string().allow('').required(),
     ciudad: Joi.string().required(),
     direccion: Joi.string().required(),
 
