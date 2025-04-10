@@ -11,7 +11,8 @@ export const createExpense = async (req, res) => {
 
     const {
       user_id, account_id, tipo, date, proveedor, categoria, description, estado,
-      expense_items, expense_totals, facturaNumber, facturaProvNumber, comentarios, voucher
+      expense_items, expense_totals, facturaNumber, facturaProvNumber, facturaProvPrefix, // Agregar facturaProvPrefix
+      comentarios, voucher
     } = req.body;
 
     // Validación básica
@@ -45,23 +46,23 @@ export const createExpense = async (req, res) => {
       parsedVoucher = typeof voucher === 'string' ? JSON.parse(voucher) : Array.isArray(voucher) ? voucher : [];
     }
 
-    // Insertar gasto principal
+    // Insertar gasto principal con facturaProvPrefix
     console.log('Insertando gasto');
     const insertExpenseQuery = `
       INSERT INTO expenses (
         id, user_id, account_id, date, provider_id, category, description,
-        estado, invoice_number, provider_invoice_number, comments,
+        estado, invoice_number, provider_invoice_number, provider_invoice_prefix, comments,
         voucher, type, total_gross, discounts, subtotal,
         ret_vat, ret_vat_percentage, ret_ica, ret_ica_percentage,
         total_net, total_impuestos
       )
-      VALUES ($1, $2, $3, $4::timestamp, $5, $6, $7, $8, $9, $10,
-              $11, $12::text[], $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      VALUES ($1, $2, $3, $4::timestamp, $5, $6, $7, $8, $9, $10, $11,
+              $12, $13::text[], $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
       RETURNING *`;
     const expenseValues = [
       uuidv4(), user_id, account_id, date, proveedor, categoria || null,
-      description, estado, facturaNumber, facturaProvNumber, comentarios,
-      parsedVoucher, tipo, expense_totals.total_bruto, expense_totals.descuentos,
+      description, estado, facturaNumber, facturaProvNumber, facturaProvPrefix || null, // Agregar facturaProvPrefix
+      comentarios, parsedVoucher, tipo, expense_totals.total_bruto, expense_totals.descuentos,
       expense_totals.subtotal, expense_totals.iva, expense_totals.iva_percentage,
       expense_totals.retencion, expense_totals.retencion_percentage,
       expense_totals.total_neto, expense_totals.total_impuestos
