@@ -51,8 +51,8 @@ const providerSchema = Joi.object({
     // Sitio Web: URL válida (opcional)
     sitioweb: Joi.string().uri().optional(),
 
-    // Método de pago: Banco, Nequi, Cajero, Otro (opcional)
-    medioPago: Joi.string().valid('Banco', 'Nequi', 'Cajero', 'Otro').optional(),
+    // Método de pago: Ahora puede ser cualquier valor que el usuario ingrese
+    medioPago: Joi.string().optional(), // Ahora permite cualquier string ingresado por el usuario
 
     // Estado del proveedor: Activo o Inactivo
     estado: Joi.string().valid('activo', 'inactivo').default('activo'),

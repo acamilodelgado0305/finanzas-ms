@@ -18,7 +18,7 @@ export const createProvider = async (req, res) => {
     const {
       tipoIdentificacion,
       numeroIdentificacion,
-      nombre,
+      nombreComercial,
       nombresContacto,
       apellidosContacto,
       ciudad,
@@ -39,7 +39,7 @@ export const createProvider = async (req, res) => {
     const adjuntosJSON = adjuntos ? JSON.stringify(adjuntos) : JSON.stringify([]); // Adjuntos no es obligatorio
 
     // Si el tipo de identificación es NIT, el nombre no es obligatorio
-    if (tipoIdentificacion === 'NIT' && !nombre) {
+    if (tipoIdentificacion === 'NIT' && !nombreComercial) {
       console.log("Advertencia: El campo 'nombre' no es obligatorio para NIT.");
     }
 
@@ -75,7 +75,7 @@ export const createProvider = async (req, res) => {
         uuidv4(),
         tipoIdentificacion,
         numeroIdentificacion,
-        nombre || '', // Si el nombre no está presente, lo dejamos vacío
+        nombreComercial || '',
         nombresContacto,
         apellidosContacto,
         direccion,
@@ -99,7 +99,7 @@ export const createProvider = async (req, res) => {
         VALUES ($1, $2, $3)
         RETURNING *`;
 
-      const terceroValues = [uuidv4(), nombre || 'No disponible', 'proveedor'];
+      const terceroValues = [uuidv4(), nombreComercial || 'No disponible', 'proveedor'];
       await client.query(terceroQuery, terceroValues);
 
       // Confirmar la transacción
@@ -156,7 +156,7 @@ export const updateProvider = async (req, res) => {
   const {
     tipoIdentificacion,
     numeroIdentificacion,
-    nombre,
+    nombreComercial,
     nombresContacto,
     apellidosContacto,
     ciudad,
@@ -194,7 +194,7 @@ export const updateProvider = async (req, res) => {
       [
         tipoIdentificacion,
         numeroIdentificacion,
-        nombre,
+        nombreComercial,
         nombresContacto,
         apellidosContacto,
         direccion,
