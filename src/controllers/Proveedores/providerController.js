@@ -18,41 +18,30 @@ export const createProvider = async (req, res) => {
     const {
       tipoIdentificacion,
       numeroIdentificacion,
-      nombre,
+      nombreComercial,
       nombresContacto,
       apellidosContacto,
       ciudad,
       direccion,
       departamento,
-      descripcion,
       telefono,
       correo,
-      adjuntos, // Si hay adjuntos, los manejamos aquí
+      adjuntos,
       sitioweb,
       medioPago,
       estado,
       fechaVencimiento,
     } = req.body;
 
-    // Archivos adjuntos procesados
-    const uploadedFiles = req.files || [];
-    let attachments = [];
+    // Asegurarse de que 'telefono' y 'correo' sean arrays antes de hacer .map()
+    const telefonoJSON = Array.isArray(telefono) ? JSON.stringify(telefono) : JSON.stringify([]);
+    const correoJSON = Array.isArray(correo) ? JSON.stringify(correo) : JSON.stringify([]);
+    const adjuntosJSON = adjuntos ? JSON.stringify(adjuntos) : JSON.stringify([]); // Adjuntos no es obligatorio
 
-    // Si hay archivos subidos, agregarlos al array adjuntos
-    if (uploadedFiles.length > 0) {
-      attachments = uploadedFiles.map(file => ({
-        tipo: file.fieldname,
-        archivo: file.path, // Guardamos la ruta del archivo
-      }));
+    // Si el tipo de identificación es NIT, el nombre no es obligatorio
+    if (tipoIdentificacion === 'NIT' && !nombreComercial) {
+      console.log("Advertencia: El campo 'nombre' no es obligatorio para NIT.");
     }
-
-    // Generar un UUID para el proveedor
-    const id = uuidv4();
-
-    // Convertir los arrays a JSON válidos
-    const telefonoJSON = JSON.stringify(telefono);  // Convertir el array de teléfonos a JSON
-    const correoJSON = JSON.stringify(correo);      // Convertir el array de correos a JSON
-    const adjuntosJSON = JSON.stringify(attachments); // Convertir los adjuntos a JSON
 
     // Iniciar la transacción
     const client = await pool.connect();
@@ -83,10 +72,10 @@ export const createProvider = async (req, res) => {
         RETURNING *`;
 
       const proveedorValues = [
-        id,
+        uuidv4(),
         tipoIdentificacion,
         numeroIdentificacion,
-        nombre,
+        nombreComercial || '',
         nombresContacto,
         apellidosContacto,
         direccion,
@@ -110,7 +99,7 @@ export const createProvider = async (req, res) => {
         VALUES ($1, $2, $3)
         RETURNING *`;
 
-      const terceroValues = [id, nombre, 'proveedor'];
+      const terceroValues = [uuidv4(), nombreComercial || 'No disponible', 'proveedor'];
       await client.query(terceroQuery, terceroValues);
 
       // Confirmar la transacción
@@ -128,7 +117,7 @@ export const createProvider = async (req, res) => {
       client.release();
     }
   } catch (error) {
-    console.error('Error al crear el proveedor:', error);
+    console.error('Error.. al crear el proveedor:', error);
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',
@@ -167,7 +156,7 @@ export const updateProvider = async (req, res) => {
   const {
     tipoIdentificacion,
     numeroIdentificacion,
-    nombre,
+    nombreComercial,
     nombresContacto,
     apellidosContacto,
     ciudad,
@@ -205,7 +194,7 @@ export const updateProvider = async (req, res) => {
       [
         tipoIdentificacion,
         numeroIdentificacion,
-        nombre,
+        nombreComercial,
         nombresContacto,
         apellidosContacto,
         direccion,
