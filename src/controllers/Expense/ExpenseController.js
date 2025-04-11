@@ -42,170 +42,7 @@ export const getAllExpenses = async (req, res) => {
   }
 };
 
-//---------------------------------------CREAR UN NUEVO GASTO-------------------------------//
 
-  // Configuración de tu base de datos
-
-
-export const createExpense = async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    await client.query('BEGIN');
-
-    const {
-      user_id,
-      account_id,
-      tipo,
-      date,
-      proveedor,
-      categoria, // Usada para expenses, ahora es el nombre de la categoría
-      description,
-      estado,
-      expense_items, // Cada item debe incluir su propia 'categoria' (también como nombre)
-      expense_totals,
-      facturaNumber,
-      facturaProvNumber,
-      comentarios,
-      voucher
-    } = req.body;
-
-   
-
-    // Usar el nombre de la categoría directamente, sin validar en la tabla categories
-    const categoriaValue = categoria || null; // Si no se proporciona, será null
-
-    // Actualizar balance de cuenta
-    const updateAccountQuery = `
-      UPDATE accounts
-      SET balance = balance - $1
-      WHERE id = $2
-      RETURNING balance`;
-
-    const accountResult = await client.query(updateAccountQuery, [
-      expense_totals.total_neto,
-      account_id
-    ]);
-
-    if (accountResult.rows.length === 0) {
-      throw new Error('Cuenta no encontrada');
-    }
-
-    if (accountResult.rows[0].balance < 0) {
-      throw new Error('Saldo insuficiente en la cuenta');
-    }
-
-    let parsedVoucher = [];
-    if (typeof voucher === 'string') {
-      try {
-        parsedVoucher = JSON.parse(voucher);
-      } catch (e) {
-        return res.status(400).json({
-          error: 'Formato de comprobantes inválido',
-          details: 'El campo voucher debe ser un arreglo válido'
-        });
-      }
-    } else if (Array.isArray(voucher)) {
-      parsedVoucher = voucher;
-    } else {
-      return res.status(400).json({
-        error: 'Formato de comprobantes inválido',
-        details: 'El campo voucher debe ser un arreglo'
-      });
-    }
-
-    // Insertar gasto principal (con categoría como nombre)
-    const insertExpenseQuery = `
-      INSERT INTO expenses (
-        id, user_id, account_id, date, provider_id, category, description,
-        estado, invoice_number, provider_invoice_number, comments,
-        voucher, type, total_gross, discounts, subtotal,
-        ret_vat, ret_vat_percentage, ret_ica, ret_ica_percentage,
-        total_net, total_impuestos
-      )
-      VALUES ($1, $2, $3, $4::timestamp, $5, $6, $7, $8, $9, $10,
-              $11, $12::text[], $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-      RETURNING *`;
-
-    const expenseValues = [
-      uuidv4(),
-      user_id,
-      account_id,
-      date,
-      proveedor,
-      categoriaValue, // Usar el nombre de la categoría directamente
-      description,
-      estado,
-      facturaNumber,
-      facturaProvNumber,
-      comentarios,
-      parsedVoucher,
-      tipo,
-      expense_totals.total_bruto,
-      expense_totals.descuentos,
-      expense_totals.subtotal,
-      expense_totals.iva, // Mapeado desde iva a ret_vat
-      expense_totals.iva_percentage, // Mapeado desde iva_percentage a ret_vat_percentage
-      expense_totals.retencion, // Mapeado desde retencion a ret_ica
-      expense_totals.retencion_percentage, // Mapeado desde retencion_percentage a ret_ica_percentage
-      expense_totals.total_neto,
-      expense_totals.total_impuestos // Nuevo campo para total_impuestos
-    ];
-
-    const expenseResult = await client.query(insertExpenseQuery, expenseValues);
-    const expense = expenseResult.rows[0];
-
-    // Insertar items del gasto (con categoría como nombre)
-    const insertItemQuery = `
-      INSERT INTO expense_items (
-        id, expense_id, category, product_name, 
-        quantity, unit_price, discount, total, tax_charge, tax_withholding
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *`;
-
-    const itemResults = [];
-    for (const item of expense_items) {
-      const itemCategoriaValue = item.categoria || null; // Usar el nombre de la categoría directamente
-
-      const itemValues = [
-        uuidv4(),
-        expense.id,
-        itemCategoriaValue, // Usar el nombre de la categoría directamente
-        item.product || item.product_name || null, // Nombre del producto
-        item.quantity || 0, // Cantidad
-        item.unitPrice || item.unit_price || 0, // Precio unitario
-        item.discount || 0, // Descuento
-        item.total || 0, // Total del ítem
-        item.taxCharge || item.tax_charge || 0, // Impuesto de cargo (IVA)
-        item.taxWithholding || item.tax_withholding || 0 // Impuesto de retención
-      ];
-
-      const itemResult = await client.query(insertItemQuery, itemValues);
-      itemResults.push(itemResult.rows[0]);
-    }
-
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      message: 'Gasto creado exitosamente',
-      data: {
-        ...expense,
-        items: itemResults
-      }
-    });
-
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error en createExpense:', error);
-    res.status(500).json({
-      error: 'Error interno del servidor',
-      details: error.message
-    });
-  } finally {
-    client.release();
-  }
-};
 
 //------------------------OBETNER GASTO POR ID------------------------//
 export const getExpenseById = async (req, res) => {
@@ -260,16 +97,17 @@ export const updateExpense = async (req, res) => {
       date,
       proveedor,
       categoria,
-      description, // This maps to the `description` column in the `expenses` table
+      description,
       estado,
       expense_items,
       expense_totals,
       facturaNumber,
       facturaProvNumber,
+      facturaProvPrefix, // Agregar facturaProvPrefix
       comentarios,
     } = req.body;
 
-    // Validate required fields
+    // Validar campos requeridos
     if (!account_id) {
       throw new Error('account_id is required');
     }
@@ -283,7 +121,7 @@ export const updateExpense = async (req, res) => {
       throw new Error('expense_items is required');
     }
 
-    // Get current expense
+    // Obtener el gasto actual
     const currentExpenseQuery = `
       SELECT total_net, account_id, category 
       FROM expenses 
@@ -296,15 +134,13 @@ export const updateExpense = async (req, res) => {
 
     const { total_net: oldTotalNet, account_id: oldAccountId, category: oldCategory } = currentExpenseResult.rows[0];
 
-    // Handle category (no validation needed since it's a varchar)
+    // Manejar categoría
     let categoriaValue = oldCategory;
     if (categoria && categoria !== oldCategory) {
       categoriaValue = categoria;
     }
 
-
-
-    // Handle account balance
+    // Manejar el balance de la cuenta
     if (oldAccountId !== account_id) {
       await client.query(
         'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
@@ -341,7 +177,7 @@ export const updateExpense = async (req, res) => {
       }
     }
 
-    // Update main expense (this part is fine, as `description` exists in the `expenses` table)
+    // Actualizar el gasto principal incluyendo provider_invoice_prefix
     const updateExpenseQuery = `
       UPDATE expenses SET 
         user_id = $1,
@@ -353,18 +189,19 @@ export const updateExpense = async (req, res) => {
         estado = $7,
         invoice_number = $8,
         provider_invoice_number = $9,
-        comments = $10,
-        type = $11,
-        total_gross = $12,
-        discounts = $13,
-        subtotal = $14,
-        ret_vat = $15,
-        ret_vat_percentage = $16,
-        ret_ica = $17,
-        ret_ica_percentage = $18,
-        total_net = $19,
-        total_impuestos = $20
-      WHERE id = $21
+        provider_invoice_prefix = $10,  -- Agregar provider_invoice_prefix
+        comments = $11,
+        type = $12,
+        total_gross = $13,
+        discounts = $14,
+        subtotal = $15,
+        ret_vat = $16,
+        ret_vat_percentage = $17,
+        ret_ica = $18,
+        ret_ica_percentage = $19,
+        total_net = $20,
+        total_impuestos = $21
+      WHERE id = $22
       RETURNING *`;
 
     const expenseValues = [
@@ -377,6 +214,7 @@ export const updateExpense = async (req, res) => {
       estado,
       facturaNumber,
       facturaProvNumber,
+      facturaProvPrefix || null, // Agregar facturaProvPrefix
       comentarios,
       tipo,
       expense_totals.total_bruto,
@@ -394,8 +232,7 @@ export const updateExpense = async (req, res) => {
     const expenseResult = await client.query(updateExpenseQuery, expenseValues);
     const expense = expenseResult.rows[0];
 
-    // Handle expense items
-    // Remove `description` from the SELECT query
+    // Manejar los ítems del gasto
     const currentItemsQuery = `
       SELECT id, category, product_name, quantity, unit_price, discount, total, tax_charge, tax_withholding 
       FROM expense_items 
@@ -405,7 +242,6 @@ export const updateExpense = async (req, res) => {
 
     const currentItemsMap = new Map(currentItems.map(item => [item.id, item]));
 
-    // Remove `description` from the INSERT query
     const insertItemQuery = `
       INSERT INTO expense_items (
         id, expense_id, category, product_name,
@@ -414,7 +250,6 @@ export const updateExpense = async (req, res) => {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`;
 
-    // Remove `description` from the UPDATE query
     const updateItemQuery = `
       UPDATE expense_items SET
         category = $1,
@@ -445,7 +280,7 @@ export const updateExpense = async (req, res) => {
       let itemCategoriaValue = item.categoria || null;
 
       if (item.id && currentItemsMap.has(item.id)) {
-        // Update existing item
+        // Actualizar ítem existente
         itemsToDelete.delete(item.id);
 
         const itemValues = [
@@ -463,7 +298,7 @@ export const updateExpense = async (req, res) => {
         const itemResult = await client.query(updateItemQuery, itemValues);
         itemResults.push(itemResult.rows[0]);
       } else {
-        // Insert new item
+        // Insertar nuevo ítem
         const itemValues = [
           uuidv4(),
           expense.id,
