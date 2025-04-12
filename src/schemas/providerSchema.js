@@ -4,7 +4,7 @@ const providerSchema = Joi.object({
     tipoIdentificacion: Joi.string().required(),
     numeroIdentificacion: Joi.string().required(),
     nombre: Joi.string().optional(),  // Hacer 'nombre' opcional para ambos casos
-    nombreComercial: Joi.string().optional(),  // Cambiado a opcional en todos los casos
+    nombreComercial: Joi.string().optional(), // Lo hacemos opcional aquí    
     nombresContacto: Joi.string().allow('').required(),
     apellidosContacto: Joi.string().allow('').required(),
     direccion: Joi.string().required(),

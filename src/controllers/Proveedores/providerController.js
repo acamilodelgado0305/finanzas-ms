@@ -4,8 +4,13 @@ import { providerSchema } from '../../schemas/providerSchema.js';
 
 export const createProvider = async (req, res) => {
   try {
+    // Si el tipo de identificación es CC y nombreComercial está vacío, eliminamos nombreComercial
+    if (req.body.tipoIdentificacion === 'CC' && !req.body.nombreComercial) {
+      delete req.body.nombreComercial;
+    }
+
     // Validar los datos con Joi
-    const { error } = providerSchema.validate(req.body);
+    const { error } = providerSchema.validate(req.body, { abortEarly: false });  // Agregando abortEarly: false para recoger todos los errores
     if (error) {
       return res.status(400).json({
         success: false,
@@ -42,7 +47,7 @@ export const createProvider = async (req, res) => {
 
     // Si el tipo de identificación es NIT, el nombre no es obligatorio
     if (tipoIdentificacion === 'NIT' && !nombreComercial) {
-      console.log("Advertencia: El campo 'nombre' no es obligatorio para NIT.");
+      console.log("Advertencia: El campo 'nombreComercial' no es obligatorio para NIT.");
     }
 
     // Iniciar la transacción
@@ -79,17 +84,17 @@ export const createProvider = async (req, res) => {
         uuidv4(),
         tipoIdentificacion,
         numeroIdentificacion,
-        nombreComercial || '',
+        nombreComercial || '',  // Aquí aseguramos que si no se proporciona, se deje vacío
         nombresContacto,
         apellidosContacto,
-        direccion,
-        departamento,
         pais,
         prefijo,
+        direccion,
+        departamento,
         ciudad,
-        telefonoJSON, // Usamos el JSON convertido
-        correoJSON,   // Usamos el JSON convertido
-        adjuntosJSON, // Usamos el JSON convertido
+        telefonoJSON,
+        correoJSON,
+        adjuntosJSON,
         medioPago || 'Otro',
         sitioweb || null,
         estado || 'activo',
@@ -131,6 +136,8 @@ export const createProvider = async (req, res) => {
     });
   }
 };
+
+
 // Obtener todos los proveedores
 export const getAllProviders = async (req, res) => {
   try {

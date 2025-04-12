@@ -6,13 +6,15 @@ export const createExpense = async (req, res) => {
   console.log('Inicio de createExpense');
 
   try {
-    await client.query('BEGIN');
+    await client
+
+.query('BEGIN');
     console.log('Transacción iniciada');
 
     const {
       user_id, account_id, tipo, date, proveedor, categoria, description, estado,
-      expense_items, expense_totals, facturaNumber, facturaProvNumber, facturaProvPrefix, // Agregar facturaProvPrefix
-      comentarios, voucher
+      expense_items, expense_totals, facturaNumber, facturaProvNumber, facturaProvPrefix,
+      comentarios, voucher, etiqueta
     } = req.body;
 
     // Validación básica
@@ -46,26 +48,26 @@ export const createExpense = async (req, res) => {
       parsedVoucher = typeof voucher === 'string' ? JSON.parse(voucher) : Array.isArray(voucher) ? voucher : [];
     }
 
-    // Insertar gasto principal con facturaProvPrefix
-    console.log('Insertando gasto');
+    // Insertar gasto principal con facturaProvPrefix y etiqueta
+    console.log('Insertando gasto con etiqueta:', etiqueta);
     const insertExpenseQuery = `
       INSERT INTO expenses (
         id, user_id, account_id, date, provider_id, category, description,
         estado, invoice_number, provider_invoice_number, provider_invoice_prefix, comments,
         voucher, type, total_gross, discounts, subtotal,
         ret_vat, ret_vat_percentage, ret_ica, ret_ica_percentage,
-        total_net, total_impuestos
+        total_net, total_impuestos, etiqueta
       )
       VALUES ($1, $2, $3, $4::timestamp, $5, $6, $7, $8, $9, $10, $11,
-              $12, $13::text[], $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+              $12, $13::text[], $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
       RETURNING *`;
     const expenseValues = [
       uuidv4(), user_id, account_id, date, proveedor, categoria || null,
-      description, estado, facturaNumber, facturaProvNumber, facturaProvPrefix || null, // Agregar facturaProvPrefix
+      description, estado, facturaNumber, facturaProvNumber, facturaProvPrefix || null,
       comentarios, parsedVoucher, tipo, expense_totals.total_bruto, expense_totals.descuentos,
       expense_totals.subtotal, expense_totals.iva, expense_totals.iva_percentage,
       expense_totals.retencion, expense_totals.retencion_percentage,
-      expense_totals.total_neto, expense_totals.total_impuestos
+      expense_totals.total_neto, expense_totals.total_impuestos, etiqueta || null
     ];
     const expenseResult = await client.query(insertExpenseQuery, expenseValues);
     const expense = expenseResult.rows[0];
