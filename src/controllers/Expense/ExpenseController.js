@@ -103,8 +103,9 @@ export const updateExpense = async (req, res) => {
       expense_totals,
       facturaNumber,
       facturaProvNumber,
-      facturaProvPrefix, // Agregar facturaProvPrefix
+      facturaProvPrefix,
       comentarios,
+      etiqueta // Añadir etiqueta
     } = req.body;
 
     // Validar campos requeridos
@@ -177,7 +178,7 @@ export const updateExpense = async (req, res) => {
       }
     }
 
-    // Actualizar el gasto principal incluyendo provider_invoice_prefix
+    // Actualizar el gasto principal incluyendo provider_invoice_prefix y etiqueta
     const updateExpenseQuery = `
       UPDATE expenses SET 
         user_id = $1,
@@ -189,7 +190,7 @@ export const updateExpense = async (req, res) => {
         estado = $7,
         invoice_number = $8,
         provider_invoice_number = $9,
-        provider_invoice_prefix = $10,  -- Agregar provider_invoice_prefix
+        provider_invoice_prefix = $10,
         comments = $11,
         type = $12,
         total_gross = $13,
@@ -200,8 +201,9 @@ export const updateExpense = async (req, res) => {
         ret_ica = $18,
         ret_ica_percentage = $19,
         total_net = $20,
-        total_impuestos = $21
-      WHERE id = $22
+        total_impuestos = $21,
+        etiqueta = $22
+      WHERE id = $23
       RETURNING *`;
 
     const expenseValues = [
@@ -214,7 +216,7 @@ export const updateExpense = async (req, res) => {
       estado,
       facturaNumber,
       facturaProvNumber,
-      facturaProvPrefix || null, // Agregar facturaProvPrefix
+      facturaProvPrefix || null,
       comentarios,
       tipo,
       expense_totals.total_bruto,
@@ -226,6 +228,7 @@ export const updateExpense = async (req, res) => {
       expense_totals.retencion_percentage,
       expense_totals.total_neto,
       expense_totals.total_impuestos,
+      etiqueta || null, // Añadir etiqueta
       id
     ];
 
