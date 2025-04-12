@@ -21,6 +21,8 @@ export const createProvider = async (req, res) => {
       nombreComercial,
       nombresContacto,
       apellidosContacto,
+      pais,
+      prefijo,
       ciudad,
       direccion,
       departamento,
@@ -57,6 +59,8 @@ export const createProvider = async (req, res) => {
           nombre_comercial,
           nombres_contacto,
           apellidos_contacto,
+          pais,
+          prefijo,
           direccion,
           departamento,
           ciudad,
@@ -68,7 +72,7 @@ export const createProvider = async (req, res) => {
           estado,
           fecha_vencimiento
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16 , $17, $18)
         RETURNING *`;
 
       const proveedorValues = [
@@ -80,6 +84,8 @@ export const createProvider = async (req, res) => {
         apellidosContacto,
         direccion,
         departamento,
+        pais,
+        prefijo,
         ciudad,
         telefonoJSON, // Usamos el JSON convertido
         correoJSON,   // Usamos el JSON convertido
@@ -125,7 +131,6 @@ export const createProvider = async (req, res) => {
     });
   }
 };
-
 // Obtener todos los proveedores
 export const getAllProviders = async (req, res) => {
   try {
@@ -161,6 +166,8 @@ export const updateProvider = async (req, res) => {
     apellidosContacto,
     ciudad,
     direccion,
+    pais,
+    prefijo,
     departamento,
     telefono,
     correo,
@@ -190,7 +197,9 @@ export const updateProvider = async (req, res) => {
            sitioweb = $13,
            estado = $14,
            fecha_vencimiento = $15,
-       WHERE id = $16 RETURNING *`,
+            pais = $16,
+            prefijo = $17
+        WHERE id = $18 RETURNING *`,
       [
         tipoIdentificacion,
         numeroIdentificacion,
@@ -198,6 +207,8 @@ export const updateProvider = async (req, res) => {
         nombresContacto,
         apellidosContacto,
         direccion,
+        pais,
+        prefijo,
         departamento,
         ciudad,
         telefono,
