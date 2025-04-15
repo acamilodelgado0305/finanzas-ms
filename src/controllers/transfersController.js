@@ -1,9 +1,20 @@
 import pool from '../database.js';
 
+
+
 const createTransferController = async (req, res) => {
   const { userId, fromAccount, toAccount, amount, vouchers, description } = req.body;
+  const client = await pool.connect();
 
   try {
+    // Validar datos de entrada
+    if (!userId || !fromAccount || !toAccount || !amount || amount <= 0) {
+      return res.status(400).json({
+        error: "Datos inválidos",
+        details: "Se requieren userId, fromAccount, toAccount y un amount positivo",
+      });
+    }
+
     // Convertir `vouchers` a un arreglo si es una cadena
     const formattedVouchers = typeof vouchers === "string"
       ? vouchers.split("\n").filter((url) => url.trim() !== "")
@@ -11,19 +22,85 @@ const createTransferController = async (req, res) => {
         ? vouchers
         : [];
 
-    // Consulta directa para insertar una transferencia
-    const query = `
+    // Iniciar una transacción
+    await client.query('BEGIN');
+
+    // Verificar que las cuentas existan y obtener sus saldos
+    const accountQuery = 'SELECT id, balance FROM accounts WHERE id = $1';
+    const fromAccountResult = await client.query(accountQuery, [fromAccount]);
+    const toAccountResult = await client.query(accountQuery, [toAccount]);
+
+    if (fromAccountResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: "Cuenta no encontrada",
+        details: `La cuenta de origen con ID ${fromAccount} no existe`,
+      });
+    }
+
+    if (toAccountResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: "Cuenta no encontrada",
+        details: `La cuenta de destino con ID ${toAccount} no existe`,
+      });
+    }
+
+    const fromAccountBalance = parseFloat(fromAccountResult.rows[0].balance);
+
+    // Verificar que la cuenta de origen tenga saldo suficiente
+    if (fromAccountBalance < amount) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: "Saldo insuficiente",
+        details: `La cuenta de origen no tiene suficiente saldo para transferir ${amount}`,
+      });
+    }
+
+    // Actualizar el saldo de la cuenta de origen (restar amount)
+    const updateFromAccountQuery = `
+      UPDATE accounts
+      SET balance = balance - $1
+      WHERE id = $2
+      RETURNING balance;
+    `;
+    const fromAccountUpdateResult = await client.query(updateFromAccountQuery, [amount, fromAccount]);
+
+    // Actualizar el saldo de la cuenta de destino (sumar amount)
+    const updateToAccountQuery = `
+      UPDATE accounts
+      SET balance = balance + $1
+      WHERE id = $2
+      RETURNING balance;
+    `;
+    const toAccountUpdateResult = await client.query(updateToAccountQuery, [amount, toAccount]);
+
+    // Insertar la transferencia
+    const transferQuery = `
       INSERT INTO transfers (user_id, from_account_id, to_account_id, amount, vouchers, description, date)
       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
       RETURNING *;
     `;
-    const values = [userId, fromAccount, toAccount, amount, formattedVouchers, description];
-    const result = await pool.query(query, values);
+    const transferValues = [userId, fromAccount, toAccount, amount, formattedVouchers, description];
+    const transferResult = await client.query(transferQuery, transferValues);
 
-    res.status(201).json(result.rows[0]);
+    // Confirmar la transacción
+    await client.query('COMMIT');
+
+    // Responder con los detalles de la transferencia
+    res.status(201).json({
+      transfer: transferResult.rows[0],
+      fromAccountNewBalance: parseFloat(fromAccountUpdateResult.rows[0].balance),
+      toAccountNewBalance: parseFloat(toAccountUpdateResult.rows[0].balance),
+    });
   } catch (err) {
+    // Revertir la transacción en caso de error
+    await client.query('ROLLBACK');
     console.error("Error creando transferencia", err);
     res.status(500).json({ error: "Error creando transferencia", details: err.message });
+  } finally {
+    // Liberar el cliente
+    client.release();
   }
 };
 
@@ -56,23 +133,92 @@ const getTransferByIdController = async (req, res) => {
 const updateTransferController = async (req, res) => {
   const { id } = req.params;
   const { userId, fromAccount, toAccount, amount, date, vouchers, description } = req.body;
+  const client = await pool.connect();
+
   try {
-    const query = `
+    await client.query('BEGIN');
+
+    // Obtener la transferencia actual
+    const currentTransferQuery = 'SELECT from_account_id, to_account_id, amount FROM transfers WHERE id = $1';
+    const currentTransferResult = await client.query(currentTransferQuery, [id]);
+
+    if (currentTransferResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Transferencia no encontrada" });
+    }
+
+    const currentTransfer = currentTransferResult.rows[0];
+    const oldFromAccount = currentTransfer.from_account_id;
+    const oldToAccount = currentTransfer.to_account_id;
+    const oldAmount = parseFloat(currentTransfer.amount);
+
+    // Revertir los saldos de la transferencia anterior
+    await client.query(
+      'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
+      [oldAmount, oldFromAccount]
+    );
+    await client.query(
+      'UPDATE accounts SET balance = balance - $1 WHERE id = $2',
+      [oldAmount, oldToAccount]
+    );
+
+    // Verificar que las nuevas cuentas existan y tengan saldo suficiente
+    const fromAccountResult = await client.query('SELECT balance FROM accounts WHERE id = $1', [fromAccount]);
+    if (fromAccountResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: "Cuenta no encontrada",
+        details: `La cuenta de origen con ID ${fromAccount} no existe`,
+      });
+    }
+
+    const toAccountResult = await client.query('SELECT balance FROM accounts WHERE id = $1', [toAccount]);
+    if (toAccountResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: "Cuenta no encontrada",
+        details: `La cuenta de destino con ID ${toAccount} no existe`,
+      });
+    }
+
+    const fromAccountBalance = parseFloat(fromAccountResult.rows[0].balance);
+    if (fromAccountBalance < amount) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: "Saldo insuficiente",
+        details: `La cuenta de origen no tiene suficiente saldo para transferir ${amount}`,
+      });
+    }
+
+    // Aplicar los nuevos saldos
+    const updateFromAccountQuery = 'UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING balance';
+    const updateToAccountQuery = 'UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING balance';
+    const fromAccountUpdateResult = await client.query(updateFromAccountQuery, [amount, fromAccount]);
+    const toAccountUpdateResult = await client.query(updateToAccountQuery, [amount, toAccount]);
+
+    // Actualizar la transferencia
+    const updateTransferQuery = `
       UPDATE transfers
       SET user_id = $1, from_account_id = $2, to_account_id = $3, amount = $4, date = $5, vouchers = $6, description = $7
       WHERE id = $8
       RETURNING *;
     `;
     const values = [userId, fromAccount, toAccount, amount, date || new Date(), vouchers, description, id];
-    const result = await pool.query(query, values);
+    const transferResult = await client.query(updateTransferQuery, values);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Transferencia no encontrada" });
-    }
-    res.status(200).json(result.rows[0]);
+    await client.query('COMMIT');
+
+    res.status(200).json({
+      transfer: transferResult.rows[0],
+      fromAccountNewBalance: parseFloat(fromAccountUpdateResult.rows[0].balance),
+      toAccountNewBalance: parseFloat(toAccountUpdateResult.rows[0].balance),
+    });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error("Error actualizando transferencia", err);
     res.status(500).json({ error: "Error actualizando transferencia", details: err.message });
+  } finally {
+    client.release();
   }
 };
 

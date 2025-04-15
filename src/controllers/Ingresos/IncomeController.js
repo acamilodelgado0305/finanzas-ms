@@ -23,7 +23,8 @@ export const getAllIncomes = async (req, res) => {
         end_period,
         cash_received,
         voucher,
-        type
+        type,
+        importes_personalizados
       FROM incomes
       ORDER BY date DESC;
     `;

@@ -8,11 +8,14 @@ import { parse, format, isValid, lastDayOfMonth } from "date-fns";
 // Obtener todos los gastos
 export const getAllExpenses = async (req, res) => {
   try {
-    // Consulta principal para obtener todos los egresos
+    // Consulta principal para obtener todos los egresos con el nombre de la cuenta
     const expensesQuery = `
-      SELECT * 
-      FROM expenses 
-      ORDER BY date DESC`;
+      SELECT 
+        e.*, 
+        a.name AS account_name
+      FROM expenses e
+      LEFT JOIN accounts a ON e.account_id = a.id
+      ORDER BY e.date DESC`;
 
     const expensesResult = await pool.query(expensesQuery);
     const expenses = expensesResult.rows;
@@ -27,8 +30,11 @@ export const getAllExpenses = async (req, res) => {
     const expensesWithItems = await Promise.all(
       expenses.map(async (expense) => {
         const itemsResult = await pool.query(expenseItemsQuery, [expense.id]);
+        // Crear un nuevo objeto sin el account_id y con account_name renombrado como account
+        const { account_id, account_name, ...rest } = expense;
         return {
-          ...expense,
+          ...rest,
+          account: account_name, // Renombrar account_name a account en la respuesta
           items: itemsResult.rows,
         };
       })
@@ -48,11 +54,14 @@ export const getAllExpenses = async (req, res) => {
 export const getExpenseById = async (req, res) => {
   const { id } = req.params; // ID del egreso
   try {
-    // Consulta principal para obtener el egreso
+    // Consulta principal para obtener el egreso con el nombre de la cuenta
     const expenseQuery = `
-      SELECT * 
-      FROM expenses 
-      WHERE id = $1`;
+      SELECT 
+        expenses.*,
+        accounts.name AS account
+      FROM expenses
+      LEFT JOIN accounts ON expenses.account_id = accounts.id
+      WHERE expenses.id = $1`;
 
     const expenseResult = await pool.query(expenseQuery, [id]);
     if (expenseResult.rows.length === 0) {
