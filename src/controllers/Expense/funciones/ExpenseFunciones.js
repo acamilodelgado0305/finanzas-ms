@@ -37,7 +37,7 @@ export const bulkUploadExpenses = async (req, res) => {
       accounts.rows.map(a => [a.name.trim().toLowerCase(), a.id])
     );
     const categoryMap = new Map(
-      categories.rows.map(c => [c.name.trim().toLowerCase(), c.id])
+      categories.rows.map(c => [c.name.trim().toLowerCase(), c.name])  // Cambiar el valor de c.id a c.name
     );
     const providerMap = new Map(
       providers.rows.map(p => [p.nombre_comercial.trim().toLowerCase(), p.id]) // Mapeo de nombre_comercial en minúsculas
@@ -77,14 +77,10 @@ export const bulkUploadExpenses = async (req, res) => {
       // Obtener accountId usando el nombre de la cuenta
       const accountId = row.account && typeof row.account === 'string'
         ? accountMap.get(row.account.trim().toLowerCase())
+        : null;      // Obtener categoryName usando el nombre de la categoría
+      const categoryName = row.category && typeof row.category === 'string'
+        ? categoryMap.get(row.category.trim().toLowerCase()) // Devuelve el nombre de la categoría
         : null;
-
-      // Obtener categoryId usando el nombre de la categoría
-      const categoryId = row.category && typeof row.category === 'string'
-        ? categoryMap.get(row.category.trim().toLowerCase())
-        : null;
-
-      // Obtener providerId usando el nombre comercial
       const providerName = row.provider_id && typeof row.provider_id === 'string'
         ? row.provider_id.trim().toLowerCase()
         : null;
@@ -98,11 +94,11 @@ export const bulkUploadExpenses = async (req, res) => {
         throw new Error(`Proveedor no válido en la fila: ${JSON.stringify(row)}`);
       }
 
-      if (!accountId || !categoryId) {
+      if (!accountId || !categoryName) {
         if (!accountId) {
           console.error(`Cuenta no válida en la fila: ${JSON.stringify(row)}`);
         }
-        if (!categoryId) {
+        if (!categoryName) {
           console.error(`Categoría no válida en la fila: ${JSON.stringify(row)}`);
         }
 
@@ -124,7 +120,7 @@ export const bulkUploadExpenses = async (req, res) => {
         id: uuidv4(),
         user_id: row.user_id,
         account_id: accountId,
-        category: categoryId,
+        category: categoryName || null,
         description: row.description || '',
         estado: row.estado || true,
         invoice_number: row.invoice_number || null,
