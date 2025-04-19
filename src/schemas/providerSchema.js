@@ -15,13 +15,13 @@ const providerSchema = Joi.object({
     telefono: Joi.array().items(
         Joi.object({
             numero: Joi.string().required(),
-            tipo: Joi.string().valid('Personal', 'Oficina', 'Soporte', 'Facturación').required(),
+            tipo: Joi.string().valid('Personal', 'Oficina', 'Soporte', 'Facturación', 'Otro').required(),
         })
     ).required(),
     correo: Joi.array().items(
         Joi.object({
             email: Joi.string().email().required(),
-            tipo: Joi.string().valid('Facturación', 'Soporte', 'Contacto General').required(),
+            tipo: Joi.string().valid('Facturación', 'Soporte', 'Contacto General', 'Otro').required(),
         })
     ).required(),
     adjuntos: Joi.array().items(
